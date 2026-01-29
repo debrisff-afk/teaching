@@ -9,6 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- 拼音库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tiny-pinyin/1.3.2/tiny-pinyin.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
@@ -65,7 +66,7 @@
         #loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 100; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(2px); }
 
         /* Logo 样式 */
-        .app-logo { max-height: 50px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
+        .app-logo { max-height: 60px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
         .sidebar-logo { max-height: 40px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
         .report-logo { max-height: 60px; width: auto; display: block; object-fit: contain; margin-bottom: 1rem; }
 
@@ -88,44 +89,27 @@
         }
         
         .report-clone-container { background-color: white !important; }
+        
+        .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
     </style>
-
-    <!-- 卫兵脚本 -->
-    <script>
-        window.appLoaded = false;
-        setTimeout(function() {
-            if (!window.appLoaded) {
-                document.getElementById('system-loading').style.display = 'none';
-                const savedUser = localStorage.getItem('jh_current_user');
-                if (savedUser) { try { window.forceLocalLogin(JSON.parse(savedUser)); } catch(e) { document.getElementById('login-modal')?.classList.remove('hidden'); } }
-                else document.getElementById('login-modal')?.classList.remove('hidden');
-            }
-        }, 3000);
-    </script>
 </head>
 <body class="flex h-screen overflow-hidden text-slate-700 bg-slate-50">
 
-    <!-- 备份 Logo SVG (当图片加载失败时显示) -->
-    <svg style="display: none;">
-        <symbol id="logo-jh" viewBox="0 0 240 60">
-            <path d="M45 30C45 38.2843 38.2843 45 30 45C21.7157 45 15 38.2843 15 30C15 21.7157 21.7157 15 30 15C38.2843 15 45 21.7157 45 30Z" stroke="#009FE8" stroke-width="6" fill="none"/>
-            <path d="M30 55C43.8071 55 55 43.8071 55 30C55 16.1929 43.8071 5 30 5C16.1929 5 5 16.1929 5 30C5 38.5 9.5 46 16 50.5" stroke="#009FE8" stroke-width="6" stroke-linecap="round" fill="none"/>
-            <circle cx="30" cy="30" r="6" fill="#009FE8"/>
-            <path d="M12 28L4 12L22 18" fill="#FF6B6B"/>
-            <text x="70" y="42" font-family="'Noto Sans SC', sans-serif" font-weight="900" font-size="34" fill="#009FE8">家辉培优</text>
-        </symbol>
-    </svg>
-
-    <!-- 加载与提示 -->
+    <!-- 全局启动加载页 -->
     <div id="system-loading">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-100 border-t-jhblue mb-4"></div>
         <div class="text-lg font-bold text-jhblue tracking-wide">家辉培优</div>
-        <div class="text-xs text-slate-400 mt-2">教学督导系统启动中...</div>
+        <div class="text-xs text-slate-400 mt-2">正在连接云端数据库...</div>
     </div>
+
+    <!-- Toast -->
     <div id="toast-container" class="bg-slate-800 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4">
         <div class="bg-green-500 rounded-full p-1"><i class="fas fa-check text-xs text-white"></i></div>
         <span id="toast-message" class="font-medium text-sm">操作成功</span>
     </div>
+
+    <!-- Loading Overlay -->
     <div id="loading-overlay">
         <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center">
             <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-100 border-t-jhblue mb-4"></div>
@@ -137,11 +121,8 @@
     <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-gradient-to-br from-blue-50 to-slate-100">
         <div class="bg-white rounded-xl shadow-soft p-10 w-full max-w-sm mx-4 border border-slate-100">
             <div class="text-center mb-10">
-                <!-- 登录 Logo -->
-                <div class="h-16 mx-auto mb-4 flex items-center justify-center">
-                    <img id="login-logo-img" class="app-logo" alt="家辉培优" onerror="this.style.display='none'; document.getElementById('login-logo-svg').style.display='block'">
-                    <svg id="login-logo-svg" class="h-16 w-auto" style="display:none"><use href="#logo-jh"/></svg>
-                </div>
+                <!-- 登录 Logo (GitHub Raw) -->
+                <img id="login-logo-img" class="app-logo" alt="家辉培优 Logo">
                 <h2 class="text-xl font-bold text-slate-800 tracking-tight mt-6">督导管理系统</h2>
             </div>
             <form onsubmit="event.preventDefault(); window.handleLogin(this.username.value, this.password.value);" class="space-y-5">
@@ -149,7 +130,7 @@
                 <div><input type="password" name="password" required class="input-minimal bg-slate-50 border-slate-200 focus:bg-white" placeholder="密码"></div>
                 <button type="submit" id="login-btn" class="w-full btn-jh py-3 flex justify-center items-center gap-2 text-base"><span>登录</span> <i class="fas fa-arrow-right text-xs"></i></button>
             </form>
-            <p class="text-xs text-center text-slate-300 mt-8">Internal System v3.3</p>
+            <p class="text-xs text-center text-slate-300 mt-8">System v4.0 (Cloud Only)</p>
         </div>
     </div>
 
@@ -173,9 +154,7 @@
         <!-- 侧边栏 -->
         <aside id="sidebar" class="w-64 bg-white border-r border-slate-100 flex flex-col no-print z-20">
             <div class="p-8 pb-4 flex items-center justify-center">
-                <!-- 侧边栏 Logo -->
-                <img id="sidebar-logo-img" class="sidebar-logo" alt="家辉培优" onerror="this.style.display='none'; document.getElementById('sidebar-logo-svg').style.display='block'">
-                <svg id="sidebar-logo-svg" class="h-10 w-auto" style="display:none"><use href="#logo-jh"/></svg>
+                <img id="sidebar-logo-img" class="sidebar-logo" alt="Logo">
             </div>
             <nav class="flex-1 px-4 space-y-1 mt-6">
                 <a href="javascript:void(0)" onclick="switchPage('home')" id="nav-home" class="nav-item flex items-center p-3 rounded-lg text-sm"><i class="fas fa-chart-pie w-6 text-center opacity-70"></i> <span class="ml-2">仪表盘</span></a>
@@ -184,7 +163,7 @@
                 <a href="javascript:void(0)" onclick="switchPage('admin')" id="nav-admin" class="nav-item flex items-center p-3 rounded-lg text-sm hidden"><i class="fas fa-users-cog w-6 text-center opacity-70"></i> <span class="ml-2">人员管理</span></a>
             </nav>
             <div class="p-4 border-t border-slate-50">
-                <div id="status-indicator" class="text-xs text-center mb-3 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> 初始化...</div>
+                <div id="status-indicator" class="text-xs text-center mb-3 text-emerald-500 font-medium"><i class="fas fa-wifi"></i> 云端已连接</div>
                 <div class="flex items-center justify-between px-2">
                     <div class="flex items-center gap-3">
                         <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs"><i class="fas fa-user"></i></div>
@@ -218,7 +197,7 @@
             <!-- 听课记录数据库 -->
             <div id="data-view" class="hidden p-8 max-w-7xl mx-auto">
                 <div class="flex justify-between items-center mb-6">
-                    <div><h2 class="text-2xl font-bold text-slate-800">听课数据库</h2><p class="text-sm text-slate-400">所有历史评估记录</p></div>
+                    <div><h2 class="text-2xl font-bold text-slate-800">听课数据库</h2><p class="text-sm text-slate-400">所有历史评估记录 (云端同步)</p></div>
                     <div class="flex gap-3"><button onclick="exportToCSV()" class="btn-outline text-sm py-2 px-4 flex items-center gap-2"><i class="fas fa-download"></i> 导出 Excel</button><button onclick="window.loadEvaluations()" class="btn-outline text-sm py-2 px-4"><i class="fas fa-sync-alt"></i></button><button onclick="startNewEvaluation()" class="btn-jh text-sm py-2 px-4"><i class="fas fa-plus"></i> 新建</button></div>
                 </div>
                 <div class="bg-white rounded-xl shadow-soft overflow-hidden border border-slate-100">
@@ -315,8 +294,8 @@
                                 <h1 class="text-4xl font-bold text-white print:text-black">家辉培优 · 督导反馈</h1>
                             </div>
                             <div class="text-right">
-                                <!-- 报告单 Logo -->
-                                <img id="report-logo-img" class="report-logo bg-white/10 rounded p-1 mb-2 ml-auto" alt="Logo" onerror="this.style.display='none'">
+                                <!-- 报告单 Logo (GitHub Raw) -->
+                                <img id="report-logo-img" class="report-logo bg-white/10 rounded p-1 mb-2 ml-auto" alt="Logo">
                                 <div id="displayLevel" class="text-6xl font-black text-white print:text-black">A</div>
                                 <div class="text-xs uppercase mt-1 opacity-60 print:text-black">Rating</div>
                             </div>
@@ -360,14 +339,11 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ================= CONFIG =================
-        // 请在此处替换您的 GitHub Raw 图片链接
-        const LOGO_URL = 'https://raw.githubusercontent.com/your-username/your-repo/main/logo.jpg'; 
-        // 示例: 'https://raw.githubusercontent.com/jiahui/assets/main/logo_v3.jpg'
-        // 注意：如果图片无法加载，系统会自动回退到 SVG 图标
-        // ==========================================
+        // ================= CONFIG: GitHub Raw Logo URL =================
+        // 请在此处填入您的 GitHub Raw 链接，替换 YOUR_REPO_NAME
+        const LOGO_URL = 'https://raw.githubusercontent.com/debrisff-afk/teaching/main/家辉%20logo.png'; 
+        // ==============================================================
 
-        let isLocalMode = false;
         let db = null;
         let auth = null;
         let appUser = null;
@@ -379,14 +355,14 @@
             window.appLoaded = true;
             document.getElementById('system-loading').style.opacity = '0';
             setTimeout(() => document.getElementById('system-loading').style.display = 'none', 500);
-            
-            // 设置 Logo
+
+            // 设置 Logo (优先使用 Github 链接，失败则使用本地占位)
             const setLogo = (id) => {
                 const img = document.getElementById(id);
                 if(img) {
-                    // 暂时使用本地文件名，如果您有 GitHub 链接，请修改上面的 LOGO_URL 变量并使用
-                    // img.src = LOGO_URL; 
-                    img.src = 'img_v3_02s5_0ead4a6a-f1dc-4f8a-b6f5-f649d6ed98cg.jpg';
+                    img.src = LOGO_URL;
+                    // 如果加载失败，可以回退到本地同名文件（如果存在）
+                    img.onerror = () => { console.warn("GitHub logo load failed, using fallback."); img.src = "家辉 logo.png"; };
                 }
             };
             setLogo('login-logo-img');
@@ -395,37 +371,36 @@
 
             try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
             document.querySelectorAll('textarea[maxlength]').forEach(el => { el.addEventListener('input', function() { const tip = this.parentElement.querySelector('.count-tip'); if(tip) tip.innerText = `${this.value.length}/${this.getAttribute('maxlength')}`; }); });
-            if (typeof __firebase_config === 'undefined' || !__firebase_config) { isLocalMode = true; setStatus('🏠 本地离线模式 (数据仅本机可见)'); checkLogin(); return; }
+
+            // 强制云端检查：如果没配置，直接报错，不再允许离线模式
+            if (typeof __firebase_config === 'undefined' || !__firebase_config) { alert("严重错误：未检测到云端配置，系统无法运行。请联系管理员部署。"); return; }
             try {
                 const config = JSON.parse(__firebase_config);
                 appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 const app = initializeApp(config); auth = getAuth(app); db = getFirestore(app);
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth);
-                onAuthStateChanged(auth, async (user) => { if (user) { setStatus('🟢 云端同步中'); const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
-            } catch (e) { console.error(e); isLocalMode = true; setStatus('🟠 连接失败，已切换至离线模式'); checkLogin(); }
+                onAuthStateChanged(auth, async (user) => { if (user) { const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
+            } catch (e) { alert("云端连接失败，请检查网络。"); console.error(e); }
         }
         
-        function setStatus(msg) { document.getElementById('status-indicator').innerText = msg; }
-        window.forceLocalLogin = (user) => { isLocalMode = true; appUser = user; setStatus('🏠 离线模式'); showApp(); };
-        function checkLogin() { const saved = localStorage.getItem('jh_current_user'); if(saved) { try { appUser = JSON.parse(saved); showApp(); } catch(e) { showLogin(); } } else showLogin(); }
         async function loginWithUid(uid) {
             if (uid === 'admin_master') { appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' }; showApp(); return; }
-            try { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)); const snap = await getDocs(q); let found = null; snap.forEach(d => found = { ...d.data(), id: d.id }); if(found) { appUser = found; showApp(); } else showLogin(); } catch(e) { alert("Error: "+e.message); showLogin(); }
+            try { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)); const snap = await getDocs(q); let found = null; snap.forEach(d => found = { ...d.data(), id: d.id }); if(found) { appUser = found; showApp(); } else showLogin(); } catch(e) { showLogin(); }
         }
 
         window.handleLogin = async (u, p) => {
             const btn = document.getElementById('login-btn'); btn.innerHTML = '登录中...';
             try {
                 if(u === 'admin' && p === '123456') { appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' }; finishLogin(appUser); return; }
-                let found = null;
-                if(isLocalMode) { const users = JSON.parse(localStorage.getItem('jh_users_db') || '[]'); found = users.find(user => user.username === u && user.password === p); }
-                else { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("username", "==", u)); const snap = await getDocs(q); snap.forEach(d => { if(d.data().password === p) found = { ...d.data(), id: d.id }; }); }
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("username", "==", u));
+                const snap = await getDocs(q); let found = null;
+                snap.forEach(d => { if(d.data().password === p) found = { ...d.data(), id: d.id }; });
                 if(found) finishLogin(found); else { alert("账号或密码错误"); btn.innerHTML = '<span>立即登录</span> <i class="fas fa-arrow-right text-xs"></i>'; }
-            } catch(e) { alert("Error: "+e.message); btn.innerHTML = '<span>立即登录</span>'; }
+            } catch(e) { alert("登录异常，请重试"); btn.innerHTML = '<span>立即登录</span>'; }
         };
 
-        function finishLogin(user) { appUser = user; if(isLocalMode) localStorage.setItem('jh_current_user', JSON.stringify(user)); else localStorage.setItem('jh_session_uid', user.uid); showApp(); }
-        window.handleLogout = () => { appUser = null; localStorage.removeItem('jh_current_user'); localStorage.removeItem('jh_session_uid'); location.reload(); };
+        function finishLogin(user) { appUser = user; localStorage.setItem('jh_session_uid', user.uid); showApp(); }
+        window.handleLogout = () => { appUser = null; localStorage.removeItem('jh_session_uid'); location.reload(); };
         function showLogin() { document.getElementById('login-modal').classList.remove('hidden'); document.getElementById('app-container').classList.add('hidden'); }
         function showApp() {
             if(!appUser) return;
@@ -478,17 +453,10 @@
             const editId = document.getElementById('editRecordId').value;
             const record = { ...data, timestamp: Date.now() };
             if(!editId) { record.creatorId = appUser.uid; record.creatorName = appUser.name; }
-            if(isLocalMode) {
-                let local = JSON.parse(localStorage.getItem('jh_evaluations') || '[]');
-                if(editId) { const idx = local.findIndex(i => i.id === editId); if(idx !== -1) { record.id = editId; record.creatorId = local[idx].creatorId; local[idx] = record; } } 
-                else { record.id = 'loc_'+Date.now(); local.push(record); }
-                localStorage.setItem('jh_evaluations', JSON.stringify(local));
-            } else {
-                try {
-                    if(editId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations', editId), record);
-                    else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'), record);
-                } catch(e) { console.error(e); }
-            }
+            try {
+                if(editId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations', editId), record);
+                else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'), record);
+            } catch(e) { alert("保存失败: " + e.message); }
             window.loadEvaluations();
         }
 
@@ -497,8 +465,7 @@
             const tbody = document.getElementById('data-table-body');
             tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">加载中...</td></tr>';
             let data = [];
-            if(isLocalMode) data = JSON.parse(localStorage.getItem('jh_evaluations') || '[]');
-            else { try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'))); snap.forEach(d => data.push({ ...d.data(), id: d.id })); } catch(e) {} }
+            try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'))); snap.forEach(d => data.push({ ...d.data(), id: d.id })); } catch(e) { console.error(e); }
             if(appUser.role !== 'admin') data = data.filter(i => i.creatorId === appUser.uid);
             data.sort((a,b) => b.timestamp - a.timestamp); cachedEvaluations = data; renderTable(data); updateStats(data);
         };
@@ -566,23 +533,26 @@
             const overlay = document.getElementById('loading-overlay');
             overlay.style.display = 'flex';
             try {
-                // Fix: Force full height render
+                // 1. 获取完整滚动高度
                 const h = el.scrollHeight; 
                 const originalH = el.style.height; 
-                el.style.height = h + 'px'; 
+                el.style.height = h + 'px'; // 临时撑开容器
                 
+                // 2. 克隆节点
                 const clone = el.cloneNode(true);
                 clone.style.width = '800px'; 
-                clone.style.height = h + 'px'; // Explicit height
+                clone.style.height = h + 'px'; 
                 clone.style.position = 'fixed'; 
                 clone.style.top = '-9999px'; 
                 clone.style.left = '-9999px';
                 
+                // 3. 修复 Canvas 丢失问题
                 const origC = el.querySelector('canvas'); const cloneC = clone.querySelector('canvas');
                 if(origC && cloneC) { const img = document.createElement('img'); img.src = origC.toDataURL(); img.style.width='100%'; cloneC.parentNode.replaceChild(img, cloneC); }
                 
                 document.body.appendChild(clone);
                 
+                // 4. 截图
                 const canvas = await html2canvas(clone, { 
                     scale: 2, 
                     useCORS: true, 
@@ -597,7 +567,7 @@
                 a.click();
                 
                 document.body.removeChild(clone);
-                el.style.height = originalH; // Restore
+                el.style.height = originalH; // 恢复原高度
             } catch(e) { console.error(e); alert("截图失败"); }
             overlay.style.display = 'none';
         }
@@ -607,34 +577,21 @@
             const tbody = document.getElementById('user-table-body');
             tbody.innerHTML = '';
             let users = [];
-            if(isLocalMode) users = JSON.parse(localStorage.getItem('jh_users_db')||'[]');
-            else { try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'))); snap.forEach(d => users.push({...d.data(), id:d.id})); } catch(e) { alert("加载用户失败: "+e.message); } }
+            try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'))); snap.forEach(d => users.push({...d.data(), id:d.id})); } catch(e) { alert("加载用户失败: "+e.message); }
             users.forEach(u => { tbody.innerHTML += `<tr class="border-b"><td class="p-5">${u.name}</td><td class="p-5 text-slate-500">${u.username}</td><td class="p-5 text-xs">******</td><td class="p-5"><span class="px-2 py-1 rounded text-xs border ${u.role==='admin'?'bg-purple-50 text-purple-700':'bg-blue-50 text-blue-700'}">${u.role==='admin'?'管理员':'督导'}</span></td><td class="p-5"><button onclick="window.delUser('${u.id}','${u.uid}')" class="text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button> <button onclick="window.resetUserPassword('${u.id}')" class="text-blue-400 hover:text-blue-600 ml-2" title="重置密码"><i class="fas fa-undo"></i></button></td></tr>`; });
         }
         window.addUser = async () => {
             const name = document.getElementById('new-name').value; const u = document.getElementById('new-username').value; const p = document.getElementById('new-password').value; const r = document.getElementById('new-role').value;
             if(!name||!u||!p) return alert("请填写完整");
             const newUser = { name, username:u, password:p, role:r, uid:'u_'+Date.now() };
-            if(isLocalMode) { let arr = JSON.parse(localStorage.getItem('jh_users_db')||'[]'); arr.push(newUser); localStorage.setItem('jh_users_db',JSON.stringify(arr)); }
-            else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), newUser);
-            alert("添加成功"); window.loadAllUsers();
+            try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), newUser); alert("添加成功"); window.loadAllUsers(); } catch(e) { alert("添加失败"); }
         }
-        window.delUser = async (id, uid) => { if(!confirm("删除?")) return; if(isLocalMode) { let arr = JSON.parse(localStorage.getItem('jh_users_db')||'[]'); localStorage.setItem('jh_users_db', JSON.stringify(arr.filter(i=>i.uid!==uid))); } else await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id)); window.loadAllUsers(); }
-        window.resetUserPassword = async (id) => { if(!confirm("重置密码为 123456?")) return; if(isLocalMode) { let arr = JSON.parse(localStorage.getItem('jh_users_db')||'[]'); const u = arr.find(u=>u.id===id||u.uid===id); if(u) u.password='123456'; localStorage.setItem('jh_users_db', JSON.stringify(arr)); } else await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id), {password:'123456'}); alert("密码已重置"); }
+        window.delUser = async (id, uid) => { if(!confirm("删除?")) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id)); window.loadAllUsers(); } catch(e) { alert("删除失败"); } }
+        window.resetUserPassword = async (id) => { if(!confirm("重置密码为 123456?")) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id), {password:'123456'}); alert("密码已重置"); } catch(e) { alert("操作失败"); } }
         window.changeOwnPassword = async (oldP, newP) => {
             if(oldP !== appUser.password) return alert("旧密码错误");
             if(newP.length < 6) return alert("新密码太短");
-            if(isLocalMode) { 
-                let arr = JSON.parse(localStorage.getItem('jh_users_db')||'[]'); 
-                let u = arr.find(x => x.username === appUser.username);
-                if(u) u.password = newP;
-                localStorage.setItem('jh_users_db', JSON.stringify(arr));
-            } else {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', appUser.id), {password: newP});
-            }
-            appUser.password = newP;
-            if(isLocalMode) localStorage.setItem('jh_current_user', JSON.stringify(appUser));
-            alert("修改成功"); document.getElementById('pwd-modal').classList.add('hidden');
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', appUser.id), {password: newP}); appUser.password = newP; alert("修改成功"); document.getElementById('pwd-modal').classList.add('hidden'); } catch(e) { alert("修改失败"); }
         }
         
         window.autoFillAccount = (name) => {
