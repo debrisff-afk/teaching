@@ -29,16 +29,15 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ================= 全局状态管理 =================
         let isLocalMode = false;
         let db = null;
         let auth = null;
-        let firebaseUser = null; // Firebase 层的用户
-        let appUser = null;      // 应用层的用户 (包含角色信息)
+        let firebaseUser = null; 
+        let appUser = null;      
         let appId = 'default-app-id';
-        let allUsers = [];       // 管理员用的用户列表缓存
 
         // 初始化函数
         async function initSystem() {
@@ -65,7 +64,9 @@
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         firebaseUser = user;
-                        await checkCloudLogin(user.uid);
+                        const savedUid = localStorage.getItem('jh_session_uid');
+                        if (savedUid) await loginWithUid(savedUid);
+                        else showLoginModal();
                     }
                 });
 
@@ -78,74 +79,80 @@
 
         // ================= 账户与权限逻辑 =================
 
-        // 检查云端登录状态 (即是否已经在 public/users 注册过)
-        async function checkCloudLogin(uid) {
-            try {
-                // Rule 1: Use Public path for shared user data so Admin can manage
-                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
-                const q = query(usersRef);
-                const snapshot = await getDocs(q);
-                let foundUser = null;
-                
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.uid === uid) {
-                        foundUser = { ...data, id: doc.id }; // Store doc id for updates
-                    }
-                });
-
-                if (foundUser) {
-                    appUser = foundUser;
-                    showApp();
-                } else {
-                    showLoginModal(); // 需要注册
-                }
-            } catch (e) {
-                console.error("Check login failed:", e);
-                showLoginModal();
-            }
-        }
-
         function checkLocalLogin() {
-            const saved = localStorage.getItem('jh_current_user');
-            if (saved) {
-                appUser = JSON.parse(saved);
+            const savedUser = localStorage.getItem('jh_current_user');
+            if (savedUser) {
+                appUser = JSON.parse(savedUser);
                 showApp();
             } else {
                 showLoginModal();
             }
         }
 
-        // 注册/登录处理
-        window.handleLogin = async (name, role) => {
-            const newUserData = {
-                name: name,
-                role: role, // 'supervisor' | 'admin'
-                uid: firebaseUser ? firebaseUser.uid : 'local_' + Date.now(),
-                createdAt: Date.now()
-            };
-
-            if (isLocalMode) {
-                localStorage.setItem('jh_current_user', JSON.stringify(newUserData));
-                appUser = newUserData;
-            } else {
-                try {
-                    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
-                    await addDoc(usersRef, newUserData);
-                    appUser = newUserData;
-                } catch (e) {
-                    alert("注册失败: " + e.message);
+        window.handleLogin = async (username, password) => {
+            const loadingBtn = document.getElementById('login-btn');
+            loadingBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 登录中...';
+            
+            try {
+                if (username === 'admin' && password === '123456') {
+                    appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' };
+                    finishLogin(appUser);
                     return;
                 }
+
+                if (isLocalMode) {
+                    let localUsers = JSON.parse(localStorage.getItem('jh_users_db') || '[]');
+                    const user = localUsers.find(u => u.username === username && u.password === password);
+                    if (user) finishLogin(user);
+                    else { alert("账号或密码错误"); loadingBtn.innerText = '登录系统'; }
+                } else {
+                    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                    const q = query(usersRef, where("username", "==", username));
+                    const snapshot = await getDocs(q);
+                    let foundUser = null;
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        if (data.password === password) foundUser = { ...data, id: doc.id };
+                    });
+
+                    if (foundUser) finishLogin(foundUser);
+                    else { alert("账号或密码错误"); loadingBtn.innerText = '登录系统'; }
+                }
+            } catch (e) {
+                console.error(e);
+                alert("登录出错: " + e.message);
+                loadingBtn.innerText = '登录系统';
             }
-            showApp();
         };
 
-        // 退出登录
+        function finishLogin(user) {
+            appUser = user;
+            if (isLocalMode) localStorage.setItem('jh_current_user', JSON.stringify(user));
+            else localStorage.setItem('jh_session_uid', user.uid);
+            showApp();
+        }
+
+        async function loginWithUid(uid) {
+            if (uid === 'admin_master') {
+                appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' };
+                showApp();
+                return;
+            }
+            try {
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                const q = query(usersRef, where("uid", "==", uid));
+                const snapshot = await getDocs(q);
+                let found = null;
+                snapshot.forEach(doc => found = { ...doc.data(), id: doc.id });
+                if (found) { appUser = found; showApp(); } else showLoginModal();
+            } catch(e) { showLoginModal(); }
+        }
+
         window.handleLogout = () => {
             appUser = null;
             if (isLocalMode) localStorage.removeItem('jh_current_user');
-            location.reload(); // 简单粗暴刷新以重置状态
+            localStorage.removeItem('jh_session_uid');
+            location.reload();
         };
 
         function showLoginModal() {
@@ -156,55 +163,194 @@
         function showApp() {
             document.getElementById('login-modal').classList.add('hidden');
             document.getElementById('app-container').classList.remove('hidden');
-            
-            // 更新侧边栏用户信息
             document.getElementById('sidebar-username').innerText = appUser.name;
             document.getElementById('sidebar-role').innerText = appUser.role === 'admin' ? '管理员' : '督导老师';
             
-            // 如果是管理员，显示管理入口
-            if (appUser.role === 'admin') {
-                document.getElementById('nav-admin').classList.remove('hidden');
-            } else {
-                document.getElementById('nav-admin').classList.add('hidden');
-            }
+            const adminNav = document.getElementById('nav-admin');
+            if (appUser.role === 'admin') adminNav.classList.remove('hidden');
+            else adminNav.classList.add('hidden');
 
-            // 预填督导姓名
             const supervisorInput = document.getElementById('supervisorName');
             if(supervisorInput) supervisorInput.value = appUser.name;
 
             window.loadEvaluations();
         }
 
-        // ================= 数据操作层 (带权限过滤) =================
+        // ================= 用户管理 (管理员) =================
+        
+        window.loadAllUsers = async () => {
+            if (appUser.role !== 'admin') return;
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">加载中...</td></tr>';
 
+            let users = [];
+            if (isLocalMode) {
+                users = JSON.parse(localStorage.getItem('jh_users_db') || '[]');
+            } else {
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                const snapshot = await getDocs(query(usersRef));
+                snapshot.forEach(doc => users.push({ ...doc.data(), id: doc.id }));
+            }
+            renderUserTable(users);
+        }
+
+        function renderUserTable(users) {
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '';
+            if(users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">暂无用户</td></tr>';
+            }
+            users.forEach(u => {
+                tbody.innerHTML += `
+                    <tr class="border-b">
+                        <td class="p-3 font-medium">${u.name}</td>
+                        <td class="p-3 text-slate-600">${u.username}</td>
+                        <td class="p-3 font-mono text-xs text-slate-400">******</td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded text-xs ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
+                                ${u.role === 'admin' ? '管理员' : '督导'}
+                            </span>
+                        </td>
+                        <td class="p-3">
+                            <button onclick="window.deleteUser('${u.id}', '${u.uid}')" class="text-red-500 hover:text-red-700 text-xs">
+                                <i class="fas fa-trash"></i> 删除
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        window.addUser = async () => {
+            const name = document.getElementById('new-name').value;
+            const username = document.getElementById('new-username').value;
+            const password = document.getElementById('new-password').value;
+            const role = document.getElementById('new-role').value;
+
+            if(!name || !username || !password) return alert("请填写完整信息");
+
+            const newUser = {
+                name, username, password, role,
+                uid: 'user_' + Date.now() + Math.random().toString(36).substr(2, 9),
+                createdAt: Date.now()
+            };
+
+            if (isLocalMode) {
+                let users = JSON.parse(localStorage.getItem('jh_users_db') || '[]');
+                if(users.find(u => u.username === username)) return alert("账号已存在");
+                users.push(newUser);
+                localStorage.setItem('jh_users_db', JSON.stringify(users));
+                alert("添加成功");
+            } else {
+                try {
+                    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                    const q = query(usersRef, where("username", "==", username));
+                    const snap = await getDocs(q);
+                    if (!snap.empty) return alert("账号已存在");
+                    await addDoc(usersRef, newUser);
+                    alert("添加成功");
+                } catch(e) { alert("添加失败: " + e.message); }
+            }
+            
+            document.getElementById('new-name').value = '';
+            document.getElementById('new-username').value = '';
+            document.getElementById('new-password').value = '';
+            window.loadAllUsers();
+        };
+
+        window.deleteUser = async (docId, uid) => {
+            if(!confirm("确定删除该账号吗？")) return;
+            if (isLocalMode) {
+                let users = JSON.parse(localStorage.getItem('jh_users_db') || '[]');
+                users = users.filter(u => u.uid !== uid);
+                localStorage.setItem('jh_users_db', JSON.stringify(users));
+            } else {
+                try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', docId)); } 
+                catch(e) { alert("删除失败"); }
+            }
+            window.loadAllUsers();
+        };
+
+        // ================= 核心业务逻辑 (CRUD) =================
+
+        // 保存或更新记录
         window.saveEvaluationToDB = async (data) => {
+            const editRecordId = document.getElementById('editRecordId').value;
+            const isUpdate = !!editRecordId;
+
             const record = {
                 ...data,
-                creatorId: appUser.uid, // 关键：绑定创建者
+                creatorId: appUser.uid,
                 creatorName: appUser.name,
-                timestamp: Date.now(),
+                timestamp: Date.now(), // 更新时间戳
                 dateStr: new Date().toLocaleDateString()
             };
 
             if (isLocalMode) {
-                const localData = JSON.parse(localStorage.getItem('jh_evaluations') || '[]');
-                record.id = 'local_' + Date.now();
-                localData.push(record);
+                let localData = JSON.parse(localStorage.getItem('jh_evaluations') || '[]');
+                if (isUpdate) {
+                    // 更新本地
+                    const index = localData.findIndex(item => item.id === editRecordId);
+                    if (index !== -1) {
+                        // 保留原 creatorId 防止覆盖
+                        record.creatorId = localData[index].creatorId; 
+                        record.id = editRecordId;
+                        localData[index] = record;
+                    }
+                } else {
+                    // 新增本地
+                    record.id = 'local_' + Date.now();
+                    localData.push(record);
+                }
                 localStorage.setItem('jh_evaluations', JSON.stringify(localData));
-                showToast("✅ 本地保存成功");
+                showToast(isUpdate ? "✅ 记录已更新" : "✅ 记录已保存");
                 await window.loadEvaluations();
             } else {
                 try {
-                    // Use Public path so Admins can see it too
                     const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations');
-                    await addDoc(colRef, record);
-                    showToast("✅ 云端同步成功");
+                    if (isUpdate) {
+                        // 更新云端
+                        // 获取原数据以保留 creatorId (虽然我们已经绑定了 creatorId, 但如果是 admin 编辑别人的, 不应该把 creatorId 改成 admin)
+                        // 这里我们假设 admin 编辑不改变 creatorId，除非我们显式传递
+                        // 简单处理：如果是 Admin，保留原 owner；如果是本人，owner 不变
+                        // 在 loadForEdit 时我们没有存 creatorId 到 form，所以这里最好从 cached 获取
+                        const original = window.cachedEvaluations.find(e => e.id === editRecordId);
+                        if(original) {
+                            record.creatorId = original.creatorId; 
+                            record.creatorName = original.creatorName; // 保持原作者名
+                        }
+                        
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations', editRecordId), record);
+                        showToast("✅ 云端记录已更新");
+                    } else {
+                        // 新增云端
+                        await addDoc(colRef, record);
+                        showToast("✅ 云端记录已保存");
+                    }
                     await window.loadEvaluations();
                 } catch (e) {
                     console.error(e);
-                    alert("保存失败");
+                    alert("保存失败: " + e.message);
                 }
             }
+        };
+
+        // 删除记录
+        window.deleteEvaluation = async (docId) => {
+            if(!confirm("确定要永久删除这条听课记录吗？")) return;
+
+            if (isLocalMode) {
+                let localData = JSON.parse(localStorage.getItem('jh_evaluations') || '[]');
+                localData = localData.filter(item => item.id !== docId);
+                localStorage.setItem('jh_evaluations', JSON.stringify(localData));
+                showToast("已删除");
+            } else {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations', docId));
+                    showToast("已从云端删除");
+                } catch(e) { alert("删除失败"); }
+            }
+            await window.loadEvaluations();
         };
 
         window.loadEvaluations = async () => {
@@ -218,26 +364,22 @@
                     if (raw) evaluations = JSON.parse(raw);
                 } else {
                     const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations');
-                    const q = query(colRef); // Fetch all first, then filter in memory (Rule #2 compliant)
+                    const q = query(colRef);
                     const snapshot = await getDocs(q);
                     snapshot.forEach((doc) => {
                         evaluations.push({ id: doc.id, ...doc.data() });
                     });
                 }
 
-                // === 权限过滤核心逻辑 ===
+                // 权限过滤
                 let filteredEvaluations = evaluations;
                 if (appUser.role !== 'admin') {
-                    // 普通督导只看自己的
                     filteredEvaluations = evaluations.filter(e => e.creatorId === appUser.uid);
                 }
-                // 管理员看所有 (无需过滤)
 
-                // 排序
                 filteredEvaluations.sort((a, b) => b.timestamp - a.timestamp);
                 window.cachedEvaluations = filteredEvaluations;
 
-                // 渲染
                 if(window.renderTableGlobal) window.renderTableGlobal(filteredEvaluations);
                 if(window.updateDashboardGlobal) window.updateDashboardGlobal(filteredEvaluations);
 
@@ -247,85 +389,24 @@
             }
         };
 
-        // ================= 用户管理 (管理员功能) =================
-        
-        window.loadAllUsers = async () => {
-            if (appUser.role !== 'admin') return;
-            
-            const tbody = document.getElementById('user-table-body');
-            tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">加载中...</td></tr>';
-
-            let users = [];
-            if (isLocalMode) {
-                // 本地模式只能演示自己
-                users = [appUser];
-            } else {
-                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
-                const snapshot = await getDocs(query(usersRef));
-                snapshot.forEach(doc => users.push({ ...doc.data(), id: doc.id }));
-            }
-            allUsers = users;
-            renderUserTable(users);
-        }
-
-        function renderUserTable(users) {
-            const tbody = document.getElementById('user-table-body');
-            tbody.innerHTML = '';
-            users.forEach(u => {
-                const isMe = u.uid === appUser.uid;
-                tbody.innerHTML += `
-                    <tr class="border-b">
-                        <td class="p-3">${u.name}</td>
-                        <td class="p-3">
-                            <span class="px-2 py-1 rounded text-xs ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
-                                ${u.role === 'admin' ? '管理员' : '督导'}
-                            </span>
-                        </td>
-                        <td class="p-3 text-xs text-gray-500">${new Date(u.createdAt).toLocaleDateString()}</td>
-                        <td class="p-3">
-                            ${!isMe && !isLocalMode ? `
-                            <button onclick="window.toggleUserRole('${u.id}', '${u.role}')" class="text-blue-600 text-xs hover:underline">
-                                ${u.role === 'admin' ? '降为督导' : '设为管理'}
-                            </button>` : '<span class="text-gray-300 text-xs">--</span>'}
-                        </td>
-                    </tr>
-                `;
-            });
-        }
-
-        window.toggleUserRole = async (docId, currentRole) => {
-            const newRole = currentRole === 'admin' ? 'supervisor' : 'admin';
-            if(confirm(`确定将该用户权限修改为 ${newRole === 'admin' ? '管理员' : '普通督导'} 吗？`)) {
-                try {
-                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', docId);
-                    await setDoc(userRef, { role: newRole }, { merge: true });
-                    showToast("权限修改成功");
-                    window.loadAllUsers();
-                } catch(e) {
-                    alert("修改失败");
-                }
-            }
-        }
-
         initSystem();
     </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
-        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f0f9ff; } /* 极浅蓝背景 */
+        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f0f9ff; }
         
         .nav-item.active { background-color: #e0f2fe; color: #009FE8; border-right: 4px solid #009FE8; }
         .score-input:focus { ring: 2px; ring-color: #009FE8; }
         .check-item { cursor: pointer; user-select: none; transition: all 0.2s; }
         .check-item.checked { color: #009FE8; font-weight: bold; background-color: #e0f2fe; border-color: #009FE8; }
         
-        /* Logo SVG 样式 */
-        .logo-icon { width: 40px; height: 40px; }
-        
         #toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; transform: translateX(120%); transition: transform 0.3s; }
         #toast-container.show { transform: translateX(0); }
         
         #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 100; display: none; align-items: center; justify-content: center; flex-direction: column; }
+        
+        .report-clone-container { background-color: white !important; -webkit-font-smoothing: antialiased; }
         
         @media print {
             .no-print { display: none !important; }
@@ -354,32 +435,28 @@
     <div id="login-modal" class="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center hidden">
         <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
             <div class="text-center mb-8">
-                <!-- SVG Logo -->
                 <svg class="w-16 h-16 mx-auto mb-4" viewBox="0 0 200 60" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M40 10C25 10 15 20 15 35C15 50 25 60 40 60C55 60 65 50 65 35" stroke="#009FE8" stroke-width="8" stroke-linecap="round"/>
                     <circle cx="40" cy="35" r="10" fill="#009FE8"/>
-                    <path d="M15 35L5 15L35 25" fill="#FF6B6B"/> <!-- 橙色箭头 -->
+                    <path d="M15 35L5 15L35 25" fill="#FF6B6B"/>
                     <text x="80" y="45" font-family="Noto Sans SC" font-weight="bold" font-size="36" fill="#009FE8">家辉培优</text>
                 </svg>
-                <h2 class="text-xl font-bold text-slate-700">教学督导系统登录</h2>
+                <h2 class="text-xl font-bold text-slate-700">教学督导系统</h2>
             </div>
-            <form onsubmit="event.preventDefault(); window.handleLogin(this.name.value, this.role.value);" class="space-y-4">
+            <form onsubmit="event.preventDefault(); window.handleLogin(this.username.value, this.password.value);" class="space-y-4">
                 <div>
-                    <label class="block text-sm font-bold text-slate-600 mb-1">您的姓名</label>
-                    <input type="text" name="name" required class="w-full border-2 border-slate-200 rounded-lg p-3 focus:border-jhblue outline-none transition" placeholder="请输入真实姓名">
+                    <label class="block text-sm font-bold text-slate-600 mb-1">账号</label>
+                    <input type="text" name="username" required class="w-full border-2 border-slate-200 rounded-lg p-3 focus:border-jhblue outline-none transition" placeholder="请输入账号">
                 </div>
                 <div>
-                    <label class="block text-sm font-bold text-slate-600 mb-1">角色选择</label>
-                    <select name="role" class="w-full border-2 border-slate-200 rounded-lg p-3 focus:border-jhblue outline-none bg-white">
-                        <option value="supervisor">督导老师</option>
-                        <option value="admin">系统管理员 (需授权)</option>
-                    </select>
+                    <label class="block text-sm font-bold text-slate-600 mb-1">密码</label>
+                    <input type="password" name="password" required class="w-full border-2 border-slate-200 rounded-lg p-3 focus:border-jhblue outline-none transition" placeholder="请输入密码">
                 </div>
-                <button type="submit" class="w-full bg-jhblue text-white font-bold py-3 rounded-lg hover:bg-sky-600 transition shadow-lg shadow-blue-200">
-                    进入系统
+                <button type="submit" id="login-btn" class="w-full bg-jhblue text-white font-bold py-3 rounded-lg hover:bg-sky-600 transition shadow-lg shadow-blue-200">
+                    登录系统
                 </button>
             </form>
-            <p class="text-xs text-center text-slate-400 mt-4">初始登录将自动创建账号</p>
+            <p class="text-xs text-center text-slate-400 mt-4">默认管理员: admin / 123456</p>
         </div>
     </div>
 
@@ -388,7 +465,6 @@
         <!-- 侧边栏 -->
         <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col no-print z-20 hidden md:flex">
             <div class="p-6 border-b border-slate-100 flex items-center gap-3">
-                <!-- SVG Logo Mini -->
                 <svg class="w-8 h-8" viewBox="0 0 60 60" fill="none">
                     <path d="M30 5C15 5 5 15 5 30C5 45 15 55 30 55C45 55 55 45 55 30" stroke="#009FE8" stroke-width="6"/>
                     <circle cx="30" cy="30" r="8" fill="#009FE8"/>
@@ -413,10 +489,9 @@
                     <i class="fas fa-database w-6 text-center"></i>
                     <span class="font-medium ml-2">听课数据库</span>
                 </a>
-                <!-- 管理员入口 -->
                 <a href="javascript:void(0)" onclick="switchPage('admin')" id="nav-admin" class="nav-item flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition hidden">
                     <i class="fas fa-users-cog w-6 text-center"></i>
-                    <span class="font-medium ml-2">用户权限管理</span>
+                    <span class="font-medium ml-2">人员管理</span>
                 </a>
             </nav>
             
@@ -453,7 +528,6 @@
             <!-- 1. 仪表盘 -->
             <div id="home-view" class="p-8 max-w-6xl mx-auto">
                 <h2 class="text-2xl font-bold text-slate-800 mb-6">👋 <span id="welcome-msg">欢迎回来</span></h2>
-                
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-jhblue">
                         <div class="flex justify-between items-start mb-2">
@@ -461,41 +535,33 @@
                             <div class="bg-blue-50 p-2 rounded text-jhblue"><i class="fas fa-folder-open"></i></div>
                         </div>
                         <h3 id="stat-total" class="text-3xl font-bold text-slate-800">0</h3>
-                        <p class="text-xs text-slate-400 mt-1">Total Records</p>
                     </div>
-                    
                     <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-jhorange">
                         <div class="flex justify-between items-start mb-2">
                             <p class="text-slate-500 text-sm">本月新增</p>
                             <div class="bg-orange-50 p-2 rounded text-jhorange"><i class="fas fa-calendar-plus"></i></div>
                         </div>
                         <h3 id="stat-month" class="text-3xl font-bold text-slate-800">0</h3>
-                        <p class="text-xs text-slate-400 mt-1">This Month</p>
                     </div>
-
                     <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-purple-500">
                         <div class="flex justify-between items-start mb-2">
                             <p class="text-slate-500 text-sm">平均得分</p>
                             <div class="bg-purple-50 p-2 rounded text-purple-600"><i class="fas fa-chart-line"></i></div>
                         </div>
                         <h3 id="stat-avg" class="text-3xl font-bold text-slate-800">-</h3>
-                        <p class="text-xs text-slate-400 mt-1">Average Score</p>
                     </div>
                 </div>
-
                 <!-- 快捷入口 -->
                 <div class="bg-gradient-to-r from-sky-500 to-jhblue rounded-xl p-8 text-white shadow-lg mb-8 relative overflow-hidden">
                     <div class="relative z-10">
                         <h3 class="text-xl font-bold mb-2">准备开始新的听课？</h3>
-                        <p class="text-blue-100 text-sm mb-6 max-w-md">使用最新的五维评估模型（有趣、有效、有用、感知、结果）进行记录。系统将自动生成可视化雷达图报告。</p>
+                        <p class="text-blue-100 text-sm mb-6 max-w-md">使用最新的五维评估模型进行记录。</p>
                         <button onclick="switchPage('tool')" class="bg-white text-jhblue px-6 py-2 rounded-lg font-bold hover:bg-blue-50 transition shadow">
                             <i class="fas fa-plus mr-2"></i> 新建评估记录
                         </button>
                     </div>
-                    <!-- 装饰背景 -->
                     <i class="fas fa-clipboard-check absolute -bottom-4 -right-4 text-9xl text-white opacity-10"></i>
                 </div>
-
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h3 class="text-lg font-bold text-slate-800 mb-4">📋 最近动态</h3>
                     <div id="recent-activity" class="space-y-3">
@@ -517,7 +583,6 @@
                         </button>
                     </div>
                 </div>
-
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div class="overflow-x-auto">
                         <table class="w-full text-left">
@@ -532,38 +597,31 @@
                                     <th class="p-4">操作</th>
                                 </tr>
                             </thead>
-                            <tbody id="data-table-body" class="text-sm text-slate-700 divide-y divide-slate-100">
-                                <!-- Data injected here -->
-                            </tbody>
+                            <tbody id="data-table-body" class="text-sm text-slate-700 divide-y divide-slate-100"></tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- 3. 新建听课 (工具) -->
+            <!-- 3. 新建/编辑听课 (工具) -->
             <div id="tool-view" class="hidden p-4 md:p-8 max-w-4xl mx-auto">
-                <header class="mb-6 border-b pb-4">
-                    <h1 class="text-2xl font-bold text-slate-800">新建评估记录</h1>
-                    <p class="text-slate-500 text-sm mt-1">请基于“有趣·有效·有用”的核心价值观进行客观评价</p>
+                <header class="mb-6 border-b pb-4 flex justify-between items-center">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800" id="tool-title">新建评估记录</h1>
+                        <p class="text-slate-500 text-sm mt-1">请基于“有趣·有效·有用”的核心价值观进行客观评价</p>
+                    </div>
+                    <button id="cancel-edit-btn" onclick="window.switchPage('tool')" class="hidden text-sm text-red-500 underline">取消编辑，返回新建</button>
                 </header>
 
                 <form id="evaluation-form" class="space-y-6 pb-24">
-                    <!-- 基础信息 -->
+                    <input type="hidden" id="editRecordId" value="">
+                    
                     <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                         <h2 class="text-lg font-bold mb-4 border-l-4 border-jhblue pl-3 text-slate-700">基础信息</h2>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div>
-                                <label class="label-text">督导姓名</label>
-                                <input type="text" id="supervisorName" class="input-field" readonly>
-                            </div>
-                            <div>
-                                <label class="label-text">听课日期</label>
-                                <input type="date" id="date" class="input-field">
-                            </div>
-                            <div>
-                                <label class="label-text">教师姓名</label>
-                                <input type="text" id="teacherName" class="input-field" placeholder="授课教师">
-                            </div>
+                            <div><label class="label-text">督导姓名</label><input type="text" id="supervisorName" class="input-field" readonly></div>
+                            <div><label class="label-text">听课日期</label><input type="date" id="date" class="input-field"></div>
+                            <div><label class="label-text">教师姓名</label><input type="text" id="teacherName" class="input-field" placeholder="授课教师"></div>
                             <div>
                                 <label class="label-text">课程类型</label>
                                 <select id="courseType" class="input-field bg-white">
@@ -572,10 +630,7 @@
                                     <option value="试听课">试听课</option>
                                 </select>
                             </div>
-                            <div class="md:col-span-2">
-                                <label class="label-text">课程/班级/课题</label>
-                                <input type="text" id="topic" class="input-field" placeholder="例如：初二数学 - 平面几何辅助线">
-                            </div>
+                            <div class="md:col-span-2"><label class="label-text">课程/班级/课题</label><input type="text" id="topic" class="input-field" placeholder="例如：初二数学 - 平面几何辅助线"></div>
                         </div>
                     </div>
 
@@ -596,7 +651,6 @@
                             </div>
                             <textarea id="textFun" class="textarea-field" placeholder="具体的优点或不足..."></textarea>
                         </div>
-
                         <!-- Efficiency -->
                         <div class="score-card border-l-4 border-blue-400">
                             <div class="flex justify-between items-center mb-2">
@@ -611,7 +665,6 @@
                             </div>
                             <textarea id="textEff" class="textarea-field" placeholder="具体的优点或不足..."></textarea>
                         </div>
-
                         <!-- Utility -->
                         <div class="score-card border-l-4 border-green-400">
                             <div class="flex justify-between items-center mb-2">
@@ -626,26 +679,19 @@
                             </div>
                             <textarea id="textUse" class="textarea-field" placeholder="具体的优点或不足..."></textarea>
                         </div>
-
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <!-- Awareness -->
                             <div class="score-card border-l-4 border-orange-300">
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="font-bold text-orange-700">4. 感知力</label>
-                                    <select id="scoreAwareness" class="score-select text-orange-700 border-orange-200">
-                                        <option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option>
-                                    </select>
+                                    <select id="scoreAwareness" class="score-select text-orange-700 border-orange-200"><option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option></select>
                                 </div>
                                 <div class="text-[10px] text-slate-400 mb-2 italic">📌 关注点：关注后排/走神学生？根据反馈调整节奏？</div>
                                 <textarea id="textAwareness" class="textarea-field" placeholder="评价..."></textarea>
                             </div>
-                            <!-- Result -->
                             <div class="score-card border-l-4 border-red-300">
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="font-bold text-red-700">5. 结果验收</label>
-                                    <select id="scoreResult" class="score-select text-red-700 border-red-200">
-                                        <option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option>
-                                    </select>
+                                    <select id="scoreResult" class="score-select text-red-700 border-red-200"><option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option></select>
                                 </div>
                                 <div class="text-[10px] text-slate-400 mb-2 italic">📌 关注点：全班正确率？二次核查？当堂纠错？</div>
                                 <textarea id="textResult" class="textarea-field" placeholder="评价..."></textarea>
@@ -653,21 +699,13 @@
                         </div>
                     </div>
 
-                    <!-- 结论 -->
                     <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                        <div class="mb-4">
-                            <label class="label-text mb-2">💡 总体改进建议</label>
-                            <textarea id="textOverallImprovement" class="textarea-field h-24" placeholder="请给出1-3条核心建议"></textarea>
-                        </div>
-                        <div>
-                            <label class="label-text mb-2">🏁 最终听课结论</label>
-                            <textarea id="textFinalVerdict" class="textarea-field h-24" placeholder="综合评价..."></textarea>
-                        </div>
+                        <div class="mb-4"><label class="label-text mb-2">💡 总体改进建议</label><textarea id="textOverallImprovement" class="textarea-field h-24" placeholder="请给出1-3条核心建议"></textarea></div>
+                        <div><label class="label-text mb-2">🏁 最终听课结论</label><textarea id="textFinalVerdict" class="textarea-field h-24" placeholder="综合评价..."></textarea></div>
                     </div>
 
-                    <!-- 底部保存 -->
                     <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur border-t border-slate-200 flex justify-center z-40 md:static md:bg-transparent md:border-0 md:p-0">
-                        <button type="button" onclick="handleGenerateAndSave()" class="w-full max-w-md bg-jhblue text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-200 hover:bg-sky-600 transition transform hover:-translate-y-1">
+                        <button type="button" onclick="handleGenerateAndSave()" id="save-btn" class="w-full max-w-md bg-jhblue text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-200 hover:bg-sky-600 transition transform hover:-translate-y-1">
                             <i class="fas fa-save mr-2"></i> 生成评估报告
                         </button>
                     </div>
@@ -676,20 +714,21 @@
 
             <!-- 4. 管理员面板 -->
             <div id="admin-view" class="hidden p-8 max-w-6xl mx-auto">
-                <h2 class="text-2xl font-bold text-slate-800 mb-6">用户权限管理</h2>
+                <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-bold text-slate-800">人员管理</h2></div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-8">
+                    <h3 class="text-md font-bold text-slate-700 mb-4">添加新账号</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                        <div><label class="text-xs text-slate-500">姓名</label><input type="text" id="new-name" class="input-field" placeholder="例如：王督导"></div>
+                        <div><label class="text-xs text-slate-500">登录账号</label><input type="text" id="new-username" class="input-field" placeholder="login_id"></div>
+                        <div><label class="text-xs text-slate-500">登录密码</label><input type="text" id="new-password" class="input-field" placeholder="password"></div>
+                        <div><label class="text-xs text-slate-500">角色</label><select id="new-role" class="input-field bg-white"><option value="supervisor">督导老师</option><option value="admin">管理员</option></select></div>
+                        <button onclick="addUser()" class="bg-jhblue text-white font-bold py-2 rounded-lg hover:bg-sky-600 transition h-[42px]"><i class="fas fa-plus"></i> 添加</button>
+                    </div>
+                </div>
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <table class="w-full text-left">
-                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
-                            <tr>
-                                <th class="p-4">姓名</th>
-                                <th class="p-4">角色</th>
-                                <th class="p-4">注册时间</th>
-                                <th class="p-4">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="user-table-body">
-                            <!-- Users injected here -->
-                        </tbody>
+                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold"><tr><th class="p-4">姓名</th><th class="p-4">账号</th><th class="p-4">密码</th><th class="p-4">角色</th><th class="p-4">操作</th></tr></thead>
+                        <tbody id="user-table-body"></tbody>
                     </table>
                 </div>
             </div>
@@ -697,17 +736,12 @@
             <!-- 5. 报告预览 Modal -->
             <div id="report-view" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-800/95 backdrop-blur-sm">
                 <div id="report-container" class="relative w-full max-w-[800px] mx-auto my-0 md:my-8 bg-white shadow-2xl overflow-hidden print:shadow-none print:m-0 min-h-screen md:min-h-fit md:rounded-lg">
-                    <!-- 报告头部 -->
                     <div class="bg-gradient-to-r from-sky-500 to-jhblue text-white p-8 relative overflow-hidden">
                         <div class="relative z-10 flex justify-between items-start">
                             <div>
                                 <div class="text-xs opacity-80 uppercase tracking-widest mb-1">Teaching Quality Assessment</div>
                                 <h1 class="text-3xl font-bold flex items-center gap-3">
-                                    <svg class="w-8 h-8 bg-white rounded-full p-1" viewBox="0 0 60 60" fill="none">
-                                        <path d="M30 5C15 5 5 15 5 30C5 45 15 55 30 55C45 55 55 45 55 30" stroke="#009FE8" stroke-width="6"/>
-                                        <circle cx="30" cy="30" r="8" fill="#009FE8"/>
-                                        <path d="M5 30L0 10L20 20" fill="#FF6B6B"/>
-                                    </svg>
+                                    <svg class="w-8 h-8 bg-white rounded-full p-1" viewBox="0 0 60 60" fill="none"><path d="M30 5C15 5 5 15 5 30C5 45 15 55 30 55C45 55 55 45 55 30" stroke="#009FE8" stroke-width="6"/><circle cx="30" cy="30" r="8" fill="#009FE8"/><path d="M5 30L0 10L20 20" fill="#FF6B6B"/></svg>
                                     家辉培优 · 督导反馈
                                 </h1>
                             </div>
@@ -724,77 +758,37 @@
                             <span class="ml-auto"><span id="displayDate"></span></span>
                         </div>
                     </div>
-
-                    <!-- 报告主体 -->
                     <div class="p-8 pb-32">
-                        <!-- 1. 雷达图 -->
                         <div class="mb-8 flex flex-col items-center">
-                            <div class="w-full max-w-[400px] h-[300px]">
-                                <canvas id="radarChart"></canvas>
-                            </div>
+                            <div class="w-full max-w-[400px] h-[300px]"><canvas id="radarChart"></canvas></div>
                             <div class="mt-4 bg-slate-50 px-6 py-3 rounded-full border border-slate-200">
                                 <span class="text-slate-500 font-bold uppercase mr-2 text-xs">Total Score</span>
                                 <span id="displayTotalScore" class="text-3xl font-black text-jhblue">85</span>
                                 <span class="text-slate-400 text-sm">/ 100</span>
                             </div>
                         </div>
-
-                        <!-- 2. 维度详情 -->
                         <div class="mb-8">
-                            <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4">
-                                <span class="bg-jhblue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">2</span>
-                                维度评价详情
-                            </h3>
+                            <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4"><span class="bg-jhblue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">2</span>维度评价详情</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <!-- Cards injected here by JS -->
-                                <div class="detail-card bg-purple-50 border-purple-100">
-                                    <div class="card-header text-purple-700">有趣味 (Fun) <span id="tag-fun" class="tag-pill bg-purple-100"></span></div>
-                                    <p id="feedFunDisplay" class="text-sm text-slate-600 mt-2"></p>
-                                </div>
-                                <div class="detail-card bg-blue-50 border-blue-100">
-                                    <div class="card-header text-blue-700">有效率 (Eff) <span id="tag-eff" class="tag-pill bg-blue-100"></span></div>
-                                    <p id="feedEffDisplay" class="text-sm text-slate-600 mt-2"></p>
-                                </div>
-                                <div class="detail-card bg-green-50 border-green-100">
-                                    <div class="card-header text-green-700">有用处 (Use) <span id="tag-use" class="tag-pill bg-green-100"></span></div>
-                                    <p id="feedUseDisplay" class="text-sm text-slate-600 mt-2"></p>
-                                </div>
-                                <div class="detail-card bg-orange-50 border-orange-100">
-                                    <div class="card-header text-orange-700">感知力 (Awareness)</div>
-                                    <p id="feedAwarenessDisplayReport" class="text-sm text-slate-600 mt-2"></p>
-                                </div>
-                                <div class="detail-card bg-red-50 border-red-100 md:col-span-2">
-                                    <div class="card-header text-red-700">结果验收 (Result)</div>
-                                    <p id="feedResultDisplayReport" class="text-sm text-slate-600 mt-2"></p>
-                                </div>
+                                <div class="detail-card bg-purple-50 border-purple-100"><div class="card-header text-purple-700">有趣味 (Fun) <span id="tag-fun" class="tag-pill bg-purple-100"></span></div><p id="feedFunDisplay" class="text-sm text-slate-600 mt-2"></p></div>
+                                <div class="detail-card bg-blue-50 border-blue-100"><div class="card-header text-blue-700">有效率 (Eff) <span id="tag-eff" class="tag-pill bg-blue-100"></span></div><p id="feedEffDisplay" class="text-sm text-slate-600 mt-2"></p></div>
+                                <div class="detail-card bg-green-50 border-green-100"><div class="card-header text-green-700">有用处 (Use) <span id="tag-use" class="tag-pill bg-green-100"></span></div><p id="feedUseDisplay" class="text-sm text-slate-600 mt-2"></p></div>
+                                <div class="detail-card bg-orange-50 border-orange-100"><div class="card-header text-orange-700">感知力 (Awareness)</div><p id="feedAwarenessDisplayReport" class="text-sm text-slate-600 mt-2"></p></div>
+                                <div class="detail-card bg-red-50 border-red-100 md:col-span-2"><div class="card-header text-red-700">结果验收 (Result)</div><p id="feedResultDisplayReport" class="text-sm text-slate-600 mt-2"></p></div>
                             </div>
                         </div>
-
-                        <!-- 3. 结论 -->
                         <div>
-                            <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4">
-                                <span class="bg-jhblue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">3</span>
-                                改进与结论
-                            </h3>
-                            <div class="bg-white border-l-4 border-jhorange p-4 shadow-sm mb-4">
-                                <div class="text-xs font-bold text-jhorange uppercase mb-1">Suggestions</div>
-                                <p id="displayOverallImprovementReport" class="text-slate-700 text-sm whitespace-pre-line"></p>
-                            </div>
-                            <div class="bg-slate-800 text-white p-5 rounded-r-lg border-l-4 border-jhblue shadow-lg">
-                                <div class="text-xs font-bold text-slate-400 uppercase mb-1">Final Verdict</div>
-                                <p id="displayFinalVerdictReport" class="text-base font-light italic leading-relaxed"></p>
-                            </div>
+                            <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4"><span class="bg-jhblue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">3</span>改进与结论</h3>
+                            <div class="bg-white border-l-4 border-jhorange p-4 shadow-sm mb-4"><div class="text-xs font-bold text-jhorange uppercase mb-1">Suggestions</div><p id="displayOverallImprovementReport" class="text-slate-700 text-sm whitespace-pre-line"></p></div>
+                            <div class="bg-slate-800 text-white p-5 rounded-r-lg border-l-4 border-jhblue shadow-lg"><div class="text-xs font-bold text-slate-400 uppercase mb-1">Final Verdict</div><p id="displayFinalVerdictReport" class="text-base font-light italic leading-relaxed"></p></div>
                         </div>
                     </div>
                 </div>
-
-                <!-- 浮动操作栏 -->
                 <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur flex justify-center gap-4 border-t z-50 no-print">
                     <button onclick="closeReport()" class="btn-secondary"><i class="fas fa-times mr-2"></i>关闭</button>
                     <button onclick="saveReportAsImage()" class="btn-primary"><i class="fas fa-image mr-2"></i>保存图片 (高清)</button>
                 </div>
             </div>
-
         </main>
     </div>
 
@@ -813,18 +807,15 @@
         .btn-primary:hover { background: #0284c7; transform: translateY(-1px); }
         .btn-secondary { background: white; color: #475569; border: 1px solid #cbd5e1; padding: 0.5rem 1.5rem; border-radius: 0.5rem; font-weight: bold; transition: all 0.2s; }
         .btn-secondary:hover { background: #f1f5f9; }
-        
         .detail-card { padding: 1rem; border-radius: 0.5rem; border-width: 1px; }
         .card-header { font-weight: bold; display: flex; justify-content: space-between; align-items: center; font-size: 0.875rem; }
         .tag-pill { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; opacity: 0.8; }
     </style>
 
     <script>
-        // 设置默认日期
         try { document.getElementById('date').valueAsDate = new Date(); } catch(e) {}
         let myChart = null;
 
-        // UI 辅助
         function toggleCheck(el) { el.classList.toggle('checked'); }
         function showToast(msg) {
             const t = document.getElementById('toast-container');
@@ -836,16 +827,21 @@
             const container = document.getElementById(id);
             return container ? Array.from(container.querySelectorAll('.check-item.checked')).map(e => e.innerText) : [];
         }
+        // 设置 tags
+        function setTags(id, tags) {
+            const container = document.getElementById(id);
+            if (!container) return;
+            const items = container.querySelectorAll('.check-item');
+            items.forEach(item => {
+                if (tags.includes(item.innerText)) item.classList.add('checked');
+                else item.classList.remove('checked');
+            });
+        }
 
-        // 页面切换
         window.switchPage = (pageId) => {
-            if (pageId === 'admin' && appUser.role !== 'admin') {
-                alert("无权限访问");
-                return;
-            }
+            if (pageId === 'admin' && appUser.role !== 'admin') { alert("无权限访问"); return; }
             ['home-view', 'tool-view', 'data-view', 'admin-view'].forEach(id => document.getElementById(id).classList.add('hidden'));
             document.getElementById('report-view').classList.add('hidden');
-            
             document.getElementById(pageId + '-view').classList.remove('hidden');
             
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -853,113 +849,73 @@
             if(navBtn) navBtn.classList.add('active');
 
             if (pageId === 'admin') window.loadAllUsers();
+            
+            // 如果是切换到 tool 页面，且没有传递编辑ID，则重置表单
+            if (pageId === 'tool' && !document.getElementById('editRecordId').value) {
+                resetForm();
+            }
         }
 
-        // 数据收集
-        window.handleGenerateAndSave = () => {
-            const getVal = (id) => parseInt(document.getElementById(id).value) || 0;
-            const getText = (id) => document.getElementById(id).value;
-            
-            const scores = [getVal('scoreFun'), getVal('scoreEff'), getVal('scoreUse'), getVal('scoreAwareness'), getVal('scoreResult')];
-            const total = scores.reduce((a,b) => a+b, 0);
-            
-            let level = "C 需改进";
-            if (total >= 90) level = "A+ 卓越";
-            else if (total >= 85) level = "A 高效";
-            else if (total >= 75) level = "B 合格";
-
-            const data = {
-                supervisorName: getText('supervisorName'),
-                teacherName: getText('teacherName'),
-                courseType: document.getElementById('courseType').value,
-                topic: getText('topic'),
-                date: getText('date'),
-                scores: scores,
-                totalScore: total,
-                level: level,
-                tags: {
-                    fun: getSelectedTags('tags-fun'),
-                    eff: getSelectedTags('tags-eff'),
-                    use: getSelectedTags('tags-use')
-                },
-                feedbacks: {
-                    fun: getText('textFun'),
-                    eff: getText('textEff'),
-                    use: getText('textUse'),
-                    awareness: getText('textAwareness'),
-                    result: getText('textResult'),
-                    overall: getText('textOverallImprovement'),
-                    verdict: getText('textFinalVerdict')
-                }
-            };
-
-            window.saveEvaluationToDB(data);
-            window.renderReport(data);
+        function resetForm() {
+            document.getElementById('evaluation-form').reset();
+            document.getElementById('editRecordId').value = "";
+            document.getElementById('supervisorName').value = appUser.name;
+            try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
+            document.querySelectorAll('.check-item').forEach(el => el.classList.remove('checked'));
+            document.getElementById('tool-title').innerText = "新建评估记录";
+            document.getElementById('save-btn').innerHTML = '<i class="fas fa-save mr-2"></i> 生成评估报告';
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
         }
 
-        // 渲染报告
-        window.renderReport = (data) => {
-            document.getElementById('displaySupervisor').innerText = data.supervisorName;
-            document.getElementById('displayTeacher').innerText = data.teacherName;
-            document.getElementById('displayCourseType').innerText = data.courseType;
-            document.getElementById('displayTopic').innerText = data.topic;
-            document.getElementById('displayDate').innerText = data.date;
-            document.getElementById('displayTotalScore').innerText = data.totalScore;
-            document.getElementById('displayLevel').innerText = data.level.split(' ')[0];
+        // 加载记录进行编辑
+        window.loadRecordForEdit = (id) => {
+            const record = window.cachedEvaluations.find(e => e.id === id);
+            if (!record) return alert("记录未找到");
 
-            // 填充分数和文本
-            const mapFeed = (id, text) => document.getElementById(id).innerText = text || "暂无评价";
-            mapFeed('feedFunDisplay', data.feedbacks.fun);
-            mapFeed('feedEffDisplay', data.feedbacks.eff);
-            mapFeed('feedUseDisplay', data.feedbacks.use);
-            mapFeed('feedAwarenessDisplayReport', data.feedbacks.awareness);
-            mapFeed('feedResultDisplayReport', data.feedbacks.result);
-            mapFeed('displayOverallImprovementReport', data.feedbacks.overall);
-            mapFeed('displayFinalVerdictReport', data.feedbacks.verdict);
+            document.getElementById('editRecordId').value = record.id;
+            
+            // 填充字段
+            const setVal = (eid, val) => document.getElementById(eid).value = val || '';
+            setVal('supervisorName', record.supervisorName);
+            setVal('teacherName', record.teacherName);
+            setVal('date', record.date);
+            setVal('courseType', record.courseType || '常规课');
+            setVal('topic', record.topic);
+            
+            // 填充分数
+            const scores = record.scores || [0,0,0,0,0];
+            setVal('scoreFun', scores[0]);
+            setVal('scoreEff', scores[1]);
+            setVal('scoreUse', scores[2]);
+            setVal('scoreAwareness', scores[3]);
+            setVal('scoreResult', scores[4]);
+
+            // 填充文本
+            const fb = record.feedbacks || {};
+            setVal('textFun', fb.fun);
+            setVal('textEff', fb.eff);
+            setVal('textUse', fb.use);
+            setVal('textAwareness', fb.awareness);
+            setVal('textResult', fb.result);
+            setVal('textOverallImprovement', fb.overall);
+            setVal('textFinalVerdict', fb.verdict);
 
             // 填充标签
-            const mapTags = (id, tags) => document.getElementById(id).innerText = (tags || []).join(' / ');
-            mapTags('tag-fun', data.tags.fun);
-            mapTags('tag-eff', data.tags.eff);
-            mapTags('tag-use', data.tags.use);
+            const tags = record.tags || {};
+            setTags('tags-fun', tags.fun || []);
+            setTags('tags-eff', tags.eff || []);
+            setTags('tags-use', tags.use || []);
 
-            document.getElementById('report-view').classList.remove('hidden');
-
-            // 渲染图表
-            setTimeout(() => {
-                const ctx = document.getElementById('radarChart').getContext('2d');
-                if (myChart) myChart.destroy();
-                myChart = new Chart(ctx, {
-                    type: 'radar',
-                    data: {
-                        labels: ['有趣', '有效', '有用', '感知', '结果'],
-                        datasets: [{
-                            label: '得分',
-                            data: data.scores,
-                            fill: true,
-                            backgroundColor: 'rgba(0, 159, 232, 0.2)', // jhblue with opacity
-                            borderColor: '#009FE8',
-                            pointBackgroundColor: '#FF6B6B', // jhorange points
-                            pointBorderColor: '#fff',
-                            pointHoverBackgroundColor: '#fff',
-                            pointHoverBorderColor: '#FF6B6B'
-                        }]
-                    },
-                    options: {
-                        scales: { r: { suggestedMin: 0, suggestedMax: 20, ticks: { display: false } } },
-                        plugins: { legend: { display: false } },
-                        maintainAspectRatio: false
-                    }
-                });
-            }, 100);
-        }
-
-        window.closeReport = () => {
-            document.getElementById('report-view').classList.add('hidden');
+            // 切换界面状态
+            document.getElementById('tool-title').innerText = "编辑记录";
+            document.getElementById('save-btn').innerHTML = '<i class="fas fa-sync-alt mr-2"></i> 更新记录';
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
+            
             window.switchPage('tool');
-        }
+            // Hack: switchPage clears form if id is empty, but we set it first, so it's ok.
+            // Wait, switchPage logic checks value? No, I added check above.
+        };
 
-        // 渲染表格 (全局)
         window.renderTableGlobal = (evaluations) => {
             const tbody = document.getElementById('data-table-body');
             tbody.innerHTML = evaluations.length ? '' : '<tr><td colspan="7" class="p-8 text-center text-slate-400">暂无数据</td></tr>';
@@ -972,6 +928,12 @@
                 else if (item.level.includes("B")) badgeClass = "bg-blue-100 text-blue-700";
                 else if (item.level.includes("C")) badgeClass = "bg-red-100 text-red-700";
 
+                // 权限判断
+                const isMine = item.creatorId === appUser.uid;
+                const isAdmin = appUser.role === 'admin';
+                const canEdit = isMine || isAdmin;
+                const canDelete = isAdmin; // 仅管理员可删除
+
                 tr.innerHTML = `
                     <td class="p-4">
                         <div class="font-bold text-slate-700">${item.date}</div>
@@ -982,128 +944,14 @@
                     <td class="p-4 text-slate-500 text-sm max-w-xs truncate">${item.topic}</td>
                     <td class="p-4 font-bold text-jhblue">${item.totalScore}</td>
                     <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${badgeClass}">${item.level.split(' ')[0]}</span></td>
-                    <td class="p-4">
-                        <button onclick="window.viewRecordGlobal('${item.id}')" class="text-jhblue hover:underline text-sm font-medium">查看</button>
+                    <td class="p-4 flex gap-3">
+                        <button onclick="window.viewRecordGlobal('${item.id}')" class="text-gray-500 hover:text-jhblue text-sm" title="查看"><i class="fas fa-eye"></i></button>
+                        ${canEdit ? `<button onclick="window.loadRecordForEdit('${item.id}')" class="text-blue-600 hover:text-blue-800 text-sm" title="编辑"><i class="fas fa-edit"></i></button>` : ''}
+                        ${canDelete ? `<button onclick="window.deleteEvaluation('${item.id}')" class="text-red-400 hover:text-red-600 text-sm" title="删除"><i class="fas fa-trash"></i></button>` : ''}
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
-        }
-
-        // 全局 Dashboard 更新
-        window.updateDashboardGlobal = (evaluations) => {
-            document.getElementById('stat-total').innerText = evaluations.length;
-            
-            // 计算本月
-            const now = new Date();
-            const thisMonth = evaluations.filter(e => {
-                const d = new Date(e.timestamp);
-                return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-            }).length;
-            document.getElementById('stat-month').innerText = thisMonth;
-
-            // 计算均分
-            if (evaluations.length > 0) {
-                const total = evaluations.reduce((sum, e) => sum + (e.totalScore || 0), 0);
-                document.getElementById('stat-avg').innerText = (total / evaluations.length).toFixed(1);
-            }
-
-            // 最近动态
-            const activityList = document.getElementById('recent-activity');
-            activityList.innerHTML = '';
-            if(evaluations.length === 0) activityList.innerHTML = '<p class="text-sm text-slate-400 py-4 text-center">暂无动态</p>';
-            
-            evaluations.slice(0, 3).forEach(item => {
-                const div = document.createElement('div');
-                div.className = "flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition cursor-pointer";
-                div.onclick = () => window.viewRecordGlobal(item.id);
-                div.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <div class="w-2 h-2 rounded-full bg-jhblue"></div>
-                        <div>
-                            <div class="font-bold text-sm text-slate-700">${item.teacherName} <span class="font-normal text-xs text-slate-400">(${item.courseType})</span></div>
-                            <div class="text-xs text-slate-500">${item.date} · ${item.supervisorName}</div>
-                        </div>
-                    </div>
-                    <div class="font-bold text-jhblue">${item.totalScore}分</div>
-                `;
-                activityList.appendChild(div);
-            });
-        }
-
-        window.viewRecordGlobal = (id) => {
-            const record = window.cachedEvaluations.find(e => e.id === id);
-            if(record) window.renderReport(record);
-        }
-
-        // 导出 CSV
-        window.exportToCSV = () => {
-            if (!window.cachedEvaluations || !window.cachedEvaluations.length) return alert("无数据");
-            let csv = "\ufeff日期,课程类型,督导,教师,课题,总分,评级,建议\n";
-            window.cachedEvaluations.forEach(e => {
-                const safe = (t) => `"${(t||'').toString().replace(/"/g,'""')}"`;
-                csv += `${safe(e.date)},${safe(e.courseType)},${safe(e.supervisorName)},${safe(e.teacherName)},${safe(e.topic)},${e.totalScore},${safe(e.level)},${safe(e.feedbacks.overall)}\n`;
-            });
-            const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `家辉培优_督导记录_${new Date().toLocaleDateString()}.csv`;
-            link.click();
-        }
-
-        // 终极截图修复版 (Clone + Scale)
-        window.saveReportAsImage = async () => {
-            const original = document.getElementById('report-container');
-            const overlay = document.getElementById('loading-overlay');
-            overlay.style.display = 'flex';
-            
-            try {
-                // 1. Clone DOM
-                const clone = original.cloneNode(true);
-                
-                // 2. Fix Canvas
-                const origCanvas = original.querySelector('canvas');
-                const cloneCanvas = clone.querySelector('canvas');
-                if (origCanvas && cloneCanvas) {
-                    const img = document.createElement('img');
-                    img.src = origCanvas.toDataURL();
-                    img.style.width = '100%';
-                    cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
-                }
-
-                // 3. Style Clone (Off-screen render)
-                clone.style.position = 'fixed';
-                clone.style.top = '0';
-                clone.style.left = '-9999px';
-                clone.style.width = '800px'; // Fixed A4-like width
-                clone.style.height = 'auto';
-                clone.style.zIndex = '-1';
-                clone.style.background = 'white';
-                clone.style.borderRadius = '0';
-                
-                document.body.appendChild(clone);
-
-                // 4. Capture
-                const canvas = await html2canvas(clone, {
-                    scale: 2,
-                    useCORS: true,
-                    backgroundColor: '#ffffff',
-                    windowWidth: 800
-                });
-
-                // 5. Save
-                const link = document.createElement('a');
-                link.download = `督导反馈_${document.getElementById('displayTeacher').innerText}.png`;
-                link.href = canvas.toDataURL();
-                link.click();
-
-                document.body.removeChild(clone);
-            } catch (e) {
-                console.error(e);
-                alert("生成图片失败，请截图保存");
-            } finally {
-                overlay.style.display = 'none';
-            }
         }
     </script>
 </body>
