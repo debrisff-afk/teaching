@@ -56,6 +56,7 @@
         #toast-container { position: fixed; top: 24px; right: 24px; z-index: 9999; transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         #toast-container.show { transform: translateX(0); }
         #loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 100; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(2px); }
+        
         .app-logo { max-height: 60px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
         .sidebar-logo { max-height: 40px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
         .report-logo { max-height: 60px; width: auto; display: block; object-fit: contain; margin-bottom: 1rem; }
@@ -63,7 +64,7 @@
         @media print {
             @page { size: A4; margin: 0; }
             body { background: white; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            #sidebar, #mobile-header, .no-print, #admin-view, #tool-view, #data-view, #home-view, #login-modal, #pwd-modal, #config-modal, #loading-overlay, #system-loading, #toast-container { display: none !important; }
+            #sidebar, #mobile-header, .no-print, #admin-view, #tool-view, #data-view, #home-view, #login-modal, #pwd-modal, #config-warning, #loading-overlay, #system-loading, #toast-container { display: none !important; }
             #app-container { display: block !important; height: auto !important; overflow: visible !important; }
             #main-content { margin: 0 !important; padding: 0 !important; overflow: visible !important; height: auto !important; }
             #report-view { display: block !important; position: static !important; inset: auto !important; background: white !important; overflow: visible !important; padding: 0 !important; }
@@ -76,15 +77,17 @@
         @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
     </style>
 
+    <!-- 卫兵脚本 -->
     <script>
         window.appLoaded = false;
         setTimeout(function() {
             if (!window.appLoaded) {
-                // 如果3秒没加载完，不再自动切本地，而是显示配置弹窗
-                document.getElementById('system-loading').style.display = 'none';
-                document.getElementById('config-modal').classList.remove('hidden');
+                // 如果3秒没加载完，显示错误提示而不是切本地
+                const loaderText = document.querySelector('#system-loading .text-xs');
+                if(loaderText) loaderText.innerText = "连接超时，请检查网络 (Github Pages 需确保能访问 Firebase)";
+                // 注意：这里不再有 forceLocalLogin 逻辑
             }
-        }, 3000);
+        }, 5000);
     </script>
 </head>
 <body class="flex h-screen overflow-hidden text-slate-700 bg-slate-50">
@@ -100,16 +103,13 @@
     </div>
     <div id="loading-overlay"><div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center"><div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-100 border-t-jhblue mb-4"></div><div class="text-slate-600 font-bold">处理中...</div></div></div>
 
-    <!-- 0. 错误/配置界面 (新增) -->
-    <div id="config-modal" class="fixed inset-0 z-[100] flex items-center justify-center hidden bg-slate-900/80 backdrop-blur-sm">
-        <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg mx-4">
-            <h2 class="text-xl font-bold text-red-500 mb-4"><i class="fas fa-exclamation-triangle"></i> 未检测到云端配置</h2>
-            <p class="text-sm text-slate-600 mb-4">您正在 GitHub 或本地运行此系统。为了确保数据安全存储在云端，请联系管理员获取 <b>Firebase Config JSON</b> 并填入代码中，或粘贴在下方临时使用。</p>
-            <textarea id="firebase-config-input" class="w-full h-32 border border-slate-300 rounded p-3 text-xs font-mono mb-4" placeholder='{"apiKey": "...", "authDomain": "...", ...}'></textarea>
-            <div class="flex justify-end gap-3">
-                <button onclick="window.saveConfigAndReload()" class="btn-jh w-full">保存配置并重连</button>
-            </div>
-            <p class="text-xs text-slate-400 mt-4 text-center">注意：建议直接修改 HTML 文件中的 MANUAL_FIREBASE_CONFIG 变量以永久生效。</p>
+    <!-- 0. 错误/配置界面 (兜底) -->
+    <div id="config-warning" class="fixed inset-0 z-[100] flex items-center justify-center hidden bg-slate-900/90 backdrop-blur-sm">
+        <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg mx-4 text-center">
+            <div class="text-5xl text-red-500 mb-4"><i class="fas fa-database"></i></div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">未检测到云端配置</h2>
+            <p class="text-sm text-slate-600 mb-6">系统无法连接数据库。如果您是管理员，请检查代码中的 <code>MANUAL_FIREBASE_CONFIG</code> 字段。</p>
+            <button onclick="location.reload()" class="btn-jh w-full">刷新重试</button>
         </div>
     </div>
 
@@ -117,7 +117,7 @@
     <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-gradient-to-br from-blue-50 to-slate-100">
         <div class="bg-white rounded-xl shadow-soft p-10 w-full max-w-sm mx-4 border border-slate-100">
             <div class="text-center mb-10">
-                <img id="login-logo-img" class="app-logo" alt="家辉培优 Logo" src="">
+                <img id="login-logo-img" class="app-logo" alt="Logo" src="">
                 <h2 class="text-xl font-bold text-slate-800 tracking-tight mt-6">督导管理系统</h2>
             </div>
             <form onsubmit="event.preventDefault(); window.handleLogin(this.username.value, this.password.value);" class="space-y-5">
@@ -125,7 +125,7 @@
                 <div><input type="password" name="password" required class="input-minimal bg-slate-50 border-slate-200 focus:bg-white" placeholder="密码"></div>
                 <button type="submit" id="login-btn" class="w-full btn-jh py-3 flex justify-center items-center gap-2 text-base"><span>登录</span> <i class="fas fa-arrow-right text-xs"></i></button>
             </form>
-            <p class="text-xs text-center text-slate-300 mt-8">System v4.1 (Cloud Only)</p>
+            <p class="text-xs text-center text-slate-300 mt-8">System v4.3 (Cloud Verified)</p>
         </div>
     </div>
 
@@ -146,7 +146,6 @@
 
     <!-- App 容器 -->
     <div id="app-container" class="flex w-full h-full hidden">
-        <!-- 侧边栏 -->
         <aside id="sidebar" class="w-64 bg-white border-r border-slate-100 flex flex-col no-print z-20">
             <div class="p-8 pb-4 flex items-center justify-center">
                 <img id="sidebar-logo-img" class="sidebar-logo" alt="Logo" src="">
@@ -158,7 +157,7 @@
                 <a href="javascript:void(0)" onclick="switchPage('admin')" id="nav-admin" class="nav-item flex items-center p-3 rounded-lg text-sm hidden"><i class="fas fa-users-cog w-6 text-center opacity-70"></i> <span class="ml-2">人员管理</span></a>
             </nav>
             <div class="p-4 border-t border-slate-50">
-                <div id="status-indicator" class="text-xs text-center mb-3 text-emerald-500 font-medium"><i class="fas fa-wifi"></i> 云端已连接</div>
+                <div id="status-indicator" class="text-xs text-center mb-3 text-emerald-500 font-medium"><i class="fas fa-circle text-[8px] mr-1"></i> 云端运行中</div>
                 <div class="flex items-center justify-between px-2">
                     <div class="flex items-center gap-3">
                         <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs"><i class="fas fa-user"></i></div>
@@ -172,7 +171,6 @@
             </div>
         </aside>
 
-        <!-- 主内容区 -->
         <main id="main-content" class="flex-1 overflow-y-auto relative bg-[#F8FAFC]">
             <!-- 仪表盘 -->
             <div id="home-view" class="p-8 max-w-7xl mx-auto">
@@ -188,10 +186,10 @@
                 </div>
             </div>
 
-            <!-- 听课记录数据库 -->
+            <!-- 数据库 -->
             <div id="data-view" class="hidden p-8 max-w-7xl mx-auto">
                 <div class="flex justify-between items-center mb-6">
-                    <div><h2 class="text-2xl font-bold text-slate-800">听课数据库</h2><p class="text-sm text-slate-400">所有历史评估记录 (云端同步)</p></div>
+                    <div><h2 class="text-2xl font-bold text-slate-800">听课数据库</h2><p class="text-sm text-slate-400">所有历史评估记录</p></div>
                     <div class="flex gap-3"><button onclick="exportToCSV()" class="btn-outline text-sm py-2 px-4 flex items-center gap-2"><i class="fas fa-download"></i> 导出 Excel</button><button onclick="window.loadEvaluations()" class="btn-outline text-sm py-2 px-4"><i class="fas fa-sync-alt"></i></button><button onclick="startNewEvaluation()" class="btn-jh text-sm py-2 px-4"><i class="fas fa-plus"></i> 新建</button></div>
                 </div>
                 <div class="bg-white rounded-xl shadow-soft overflow-hidden border border-slate-100">
@@ -199,7 +197,7 @@
                 </div>
             </div>
 
-            <!-- 新建/编辑听课 -->
+            <!-- 编辑页 -->
             <div id="tool-view" class="hidden p-8 max-w-5xl mx-auto">
                 <div class="flex justify-between items-end mb-8">
                     <div><h1 class="text-2xl font-bold text-slate-800" id="tool-title">新建评估</h1><p class="text-sm text-slate-400 mt-1">请保持客观公正，所有项均为<span class="text-jhorange">必填</span>。</p></div>
@@ -218,35 +216,21 @@
                         </div>
                     </div>
                     <div class="grid grid-cols-1 gap-6">
-                        <!-- Fun -->
                         <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100 flex flex-col md:flex-row gap-6">
-                            <div class="w-full md:w-1/4 flex flex-col justify-center items-center border-r border-slate-50 pr-6">
-                                <div class="text-purple-600 font-bold text-lg mb-2">1. 有趣味</div><input type="number" id="scoreFun" class="text-3xl font-bold text-center w-full outline-none text-slate-700 placeholder-slate-200" placeholder="0" max="20" min="0" required><span class="text-xs text-slate-400">/ 20分</span>
-                            </div>
+                            <div class="w-full md:w-1/4 flex flex-col justify-center items-center border-r border-slate-50 pr-6"><div class="text-purple-600 font-bold text-lg mb-2">1. 有趣味</div><input type="number" id="scoreFun" class="text-3xl font-bold text-center w-full outline-none text-slate-700 placeholder-slate-200" placeholder="0" max="20" min="0" required><span class="text-xs text-slate-400">/ 20分</span></div>
                             <div class="w-full md:w-3/4"><div id="tags-fun" class="flex gap-2 mb-3 flex-wrap"><span class="check-item" onclick="toggleCheck(this)">导入抓人</span><span class="check-item" onclick="toggleCheck(this)">互动高频</span><span class="check-item" onclick="toggleCheck(this)">氛围活跃</span></div><textarea id="textFun" class="input-minimal h-24 resize-none" placeholder="评价：导入是否吸引人？互动是否有效？（必填，2000字以内）" maxlength="2000" required></textarea><div class="text-right text-[10px] text-slate-300 mt-1 count-tip">0/2000</div></div>
                         </div>
-                        <!-- Eff -->
                         <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100 flex flex-col md:flex-row gap-6">
-                            <div class="w-full md:w-1/4 flex flex-col justify-center items-center border-r border-slate-50 pr-6">
-                                <div class="text-blue-600 font-bold text-lg mb-2">2. 有效率</div><input type="number" id="scoreEff" class="text-3xl font-bold text-center w-full outline-none text-slate-700 placeholder-slate-200" placeholder="0" max="20" min="0" required><span class="text-xs text-slate-400">/ 20分</span>
-                            </div>
+                            <div class="w-full md:w-1/4 flex flex-col justify-center items-center border-r border-slate-50 pr-6"><div class="text-blue-600 font-bold text-lg mb-2">2. 有效率</div><input type="number" id="scoreEff" class="text-3xl font-bold text-center w-full outline-none text-slate-700 placeholder-slate-200" placeholder="0" max="20" min="0" required><span class="text-xs text-slate-400">/ 20分</span></div>
                             <div class="w-full md:w-3/4"><div id="tags-eff" class="flex gap-2 mb-3 flex-wrap"><span class="check-item" onclick="toggleCheck(this)">节奏紧凑</span><span class="check-item" onclick="toggleCheck(this)">指令清晰</span><span class="check-item" onclick="toggleCheck(this)">无无效时间</span></div><textarea id="textEff" class="input-minimal h-24 resize-none" placeholder="评价：环节过渡自然吗？有无拖沓？（必填）" maxlength="2000" required></textarea><div class="text-right text-[10px] text-slate-300 mt-1 count-tip">0/2000</div></div>
                         </div>
-                        <!-- Use -->
                         <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100 flex flex-col md:flex-row gap-6">
-                            <div class="w-full md:w-1/4 flex flex-col justify-center items-center border-r border-slate-50 pr-6">
-                                <div class="text-green-600 font-bold text-lg mb-2">3. 有用处</div><input type="number" id="scoreUse" class="text-3xl font-bold text-center w-full outline-none text-slate-700 placeholder-slate-200" placeholder="0" max="20" min="0" required><span class="text-xs text-slate-400">/ 20分</span>
-                            </div>
+                            <div class="w-full md:w-1/4 flex flex-col justify-center items-center border-r border-slate-50 pr-6"><div class="text-green-600 font-bold text-lg mb-2">3. 有用处</div><input type="number" id="scoreUse" class="text-3xl font-bold text-center w-full outline-none text-slate-700 placeholder-slate-200" placeholder="0" max="20" min="0" required><span class="text-xs text-slate-400">/ 20分</span></div>
                             <div class="w-full md:w-3/4"><div id="tags-use" class="flex gap-2 mb-3 flex-wrap"><span class="check-item" onclick="toggleCheck(this)">考点聚焦</span><span class="check-item" onclick="toggleCheck(this)">方法落地</span><span class="check-item" onclick="toggleCheck(this)">有总结清单</span></div><textarea id="textUse" class="input-minimal h-24 resize-none" placeholder="评价：干货多吗？学生能带走什么？（必填）" maxlength="2000" required></textarea><div class="text-right text-[10px] text-slate-300 mt-1 count-tip">0/2000</div></div>
                         </div>
-                        <!-- Awareness & Result -->
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100">
-                                <div class="flex justify-between items-center mb-4"><div class="text-orange-500 font-bold">4. 感知力 (20分)</div><select id="scoreAwareness" class="bg-slate-50 border-none rounded px-2 py-1 font-bold text-slate-700 outline-none" required><option value="" disabled selected>选择...</option><option value="20">20 (优)</option><option value="16">16 (良)</option><option value="12">12 (中)</option><option value="8">8 (差)</option></select></div><textarea id="textAwareness" class="input-minimal h-24 resize-none" placeholder="关注后排学生了吗？（必填）" maxlength="2000" required></textarea>
-                            </div>
-                            <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100">
-                                <div class="flex justify-between items-center mb-4"><div class="text-red-500 font-bold">5. 结果验收 (20分)</div><select id="scoreResult" class="bg-slate-50 border-none rounded px-2 py-1 font-bold text-slate-700 outline-none" required><option value="" disabled selected>选择...</option><option value="20">20 (优)</option><option value="16">16 (良)</option><option value="12">12 (中)</option><option value="8">8 (差)</option></select></div><textarea id="textResult" class="input-minimal h-24 resize-none" placeholder="全班正确率如何？（必填）" maxlength="2000" required></textarea>
-                            </div>
+                            <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100"><div class="flex justify-between items-center mb-4"><div class="text-orange-500 font-bold">4. 感知力 (20分)</div><select id="scoreAwareness" class="bg-slate-50 border-none rounded px-2 py-1 font-bold text-slate-700 outline-none" required><option value="" disabled selected>选择...</option><option value="20">20 (优)</option><option value="16">16 (良)</option><option value="12">12 (中)</option><option value="8">8 (差)</option></select></div><textarea id="textAwareness" class="input-minimal h-24 resize-none" placeholder="关注后排学生了吗？（必填）" maxlength="2000" required></textarea></div>
+                            <div class="bg-white p-6 rounded-xl shadow-soft border border-slate-100"><div class="flex justify-between items-center mb-4"><div class="text-red-500 font-bold">5. 结果验收 (20分)</div><select id="scoreResult" class="bg-slate-50 border-none rounded px-2 py-1 font-bold text-slate-700 outline-none" required><option value="" disabled selected>选择...</option><option value="20">20 (优)</option><option value="16">16 (良)</option><option value="12">12 (中)</option><option value="8">8 (差)</option></select></div><textarea id="textResult" class="input-minimal h-24 resize-none" placeholder="全班正确率如何？（必填）" maxlength="2000" required></textarea></div>
                         </div>
                     </div>
                     <div class="bg-white p-8 rounded-xl shadow-soft border border-slate-100">
@@ -304,9 +288,7 @@
                     </div>
                     <!-- Body -->
                     <div class="p-12">
-                        <div class="flex justify-center mb-10 print:mb-6">
-                            <div class="w-[400px] h-[300px] relative"><canvas id="radarChart"></canvas><div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center mt-4"><div class="text-3xl font-black text-slate-800" id="displayTotalScore">0</div><div class="text-xs text-slate-400 font-bold">TOTAL</div></div></div>
-                        </div>
+                        <div class="flex justify-center mb-10 print:mb-6"><div class="w-[400px] h-[300px] relative"><canvas id="radarChart"></canvas><div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center mt-4"><div class="text-3xl font-black text-slate-800" id="displayTotalScore">0</div><div class="text-xs text-slate-400 font-bold">TOTAL</div></div></div></div>
                         <div class="grid grid-cols-2 gap-6 mb-10 print:gap-4 print:mb-6">
                             <div class="p-4 bg-slate-50 rounded-lg print:border print:border-slate-200"><div class="text-xs font-bold text-purple-600 uppercase mb-2">1. 有趣味</div><p id="feedFunDisplay" class="text-sm text-slate-700 leading-relaxed"></p></div>
                             <div class="p-4 bg-slate-50 rounded-lg print:border print:border-slate-200"><div class="text-xs font-bold text-blue-600 uppercase mb-2">2. 有效率</div><p id="feedEffDisplay" class="text-sm text-slate-700 leading-relaxed"></p></div>
@@ -333,23 +315,21 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ================= CONFIG & FALLBACK =================
-        // 请在此处替换您的 GitHub Raw 图片链接，并将 "YOUR_REPO_NAME" 替换为您的仓库名
-        const LOGO_URL = 'https://raw.githubusercontent.com/debrisff-afk/teaching/main/家辉%20logo.png'; 
-        // 示例: 'https://raw.githubusercontent.com/debrisff-afk/supervision-system/main/家辉%20logo.png'
+        // ================= CONFIG =================
+        // Github Logo (Space encoded as %20)
+        const LOGO_URL = 'https://raw.githubusercontent.com/debrisff-afk/teaching/main/%E5%AE%B6%E8%BE%89%20logo.png'; 
         
-        // TODO: 如果您在 GitHub Pages 上运行，请在此处填入您的 Firebase 配置：
-        // const MANUAL_FIREBASE_CONFIG = { apiKey: "...", authDomain: "...", projectId: "...", ... };
+        // ★★★ 请将您的 Firebase 配置填入下方 (替换 null) ★★★
         const MANUAL_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDnmfNHyk6oQ4QOti2_sw_jzDy3k9R93bQ",
-  authDomain: "teaching-baf85.firebaseapp.com",
-  projectId: "teaching-baf85",
-  storageBucket: "teaching-baf85.appspot.com",
-  messagingSenderId: "597140673875",
-  appId: "1:597140673875:web:fe8eece32a33a99f893da6",
-  measurementId: "G-WJC6VXV7P0"
-};
-        // =======================================================
+          apiKey: "AIzaSyDnmfNHyk6oQ4QOti2_sw_jzDy3k9R93bQ",
+          authDomain: "teaching-baf85.firebaseapp.com",
+          projectId: "teaching-baf85",
+          storageBucket: "teaching-baf85.appspot.com",
+          messagingSenderId: "597140673075",
+          appId: "1:597140673075:web:fe8eece32a33a99f893da6",
+          measurementId: "G-WJC6VXV7P0"
+        };
+        // ==========================================
 
         let db = null;
         let auth = null;
@@ -363,46 +343,17 @@
             document.getElementById('system-loading').style.opacity = '0';
             setTimeout(() => document.getElementById('system-loading').style.display = 'none', 500);
 
-            // 设置 Logo (优先使用 Github 链接)
-            const setLogo = (id) => {
-                const img = document.getElementById(id);
-                if(img) {
-                    img.src = LOGO_URL;
-                    // 如果加载失败，尝试使用本地相对路径（在同一文件夹下）
-                    img.onerror = () => { 
-                        console.warn("Logo load failed, checking local."); 
-                        if (img.src !== '家辉 logo.png') img.src = "家辉 logo.png"; 
-                    };
-                }
-            };
-            setLogo('login-logo-img');
-            setLogo('sidebar-logo-img');
-            setLogo('report-logo-img');
+            // Set Logo
+            const setLogo = (id) => { const img = document.getElementById(id); if(img) img.src = LOGO_URL; };
+            setLogo('login-logo-img'); setLogo('sidebar-logo-img'); setLogo('report-logo-img');
 
             try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
             document.querySelectorAll('textarea[maxlength]').forEach(el => { el.addEventListener('input', function() { const tip = this.parentElement.querySelector('.count-tip'); if(tip) tip.innerText = `${this.value.length}/${this.getAttribute('maxlength')}`; }); });
 
-            // 决定使用哪套配置
             let configToUse = null;
-            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-                configToUse = JSON.parse(__firebase_config);
-            } else if (MANUAL_FIREBASE_CONFIG) {
-                configToUse = MANUAL_FIREBASE_CONFIG;
-                appId = MANUAL_FIREBASE_CONFIG.projectId || 'default-app-id'; // 尝试从配置中获取ID
-            } else {
-                // 无配置，显示手动输入弹窗
-                document.getElementById('config-modal').classList.remove('hidden');
-                // 尝试读取本地缓存的配置 (方便调试)
-                const savedConfig = localStorage.getItem('jh_custom_firebase_config');
-                if (savedConfig) {
-                     try {
-                         configToUse = JSON.parse(savedConfig);
-                         appId = configToUse.projectId;
-                         console.log("Using cached config");
-                     } catch(e) {}
-                }
-                if (!configToUse) return; // 等待用户输入
-            }
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) { configToUse = JSON.parse(__firebase_config); }
+            else if (MANUAL_FIREBASE_CONFIG) { configToUse = MANUAL_FIREBASE_CONFIG; appId = MANUAL_FIREBASE_CONFIG.projectId; }
+            else { document.getElementById('config-warning').classList.remove('hidden'); return; }
             
             await connectFirebase(configToUse);
         }
@@ -410,33 +361,11 @@
         async function connectFirebase(config) {
              try {
                 const app = initializeApp(config); auth = getAuth(app); db = getFirestore(app);
-                
-                // 尝试匿名登录或自定义 Token
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); 
-                else await signInAnonymously(auth);
-                
-                onAuthStateChanged(auth, async (user) => { 
-                    if (user) { 
-                        const savedUid = localStorage.getItem('jh_session_uid'); 
-                        if (savedUid) await loginWithUid(savedUid); else showLogin(); 
-                    } else showLogin(); 
-                });
-                
-                // 隐藏配置弹窗（如果打开）
-                document.getElementById('config-modal').classList.add('hidden');
-                
-            } catch (e) { alert("云端连接失败，请检查配置。"); console.error(e); document.getElementById('config-modal').classList.remove('hidden'); }
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth);
+                onAuthStateChanged(auth, async (user) => { if (user) { const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
+            } catch (e) { alert("云端连接失败，请检查配置是否正确"); document.getElementById('config-warning').classList.remove('hidden'); }
         }
 
-        window.saveConfigAndReload = () => {
-            const val = document.getElementById('firebase-config-input').value;
-            try {
-                const conf = JSON.parse(val);
-                localStorage.setItem('jh_custom_firebase_config', val);
-                location.reload();
-            } catch(e) { alert("配置格式错误 (必须是有效的 JSON)"); }
-        }
-        
         async function loginWithUid(uid) {
             if (uid === 'admin_master') { appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' }; showApp(); return; }
             try { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)); const snap = await getDocs(q); let found = null; snap.forEach(d => found = { ...d.data(), id: d.id }); if(found) { appUser = found; showApp(); } else showLogin(); } catch(e) { showLogin(); }
@@ -450,7 +379,7 @@
                 const snap = await getDocs(q); let found = null;
                 snap.forEach(d => { if(d.data().password === p) found = { ...d.data(), id: d.id }; });
                 if(found) finishLogin(found); else { alert("账号或密码错误"); btn.innerHTML = '<span>立即登录</span> <i class="fas fa-arrow-right text-xs"></i>'; }
-            } catch(e) { alert("登录异常，请重试"); btn.innerHTML = '<span>立即登录</span>'; }
+            } catch(e) { alert("登录异常，请检查网络"); btn.innerHTML = '<span>立即登录</span>'; }
         };
 
         function finishLogin(user) { appUser = user; localStorage.setItem('jh_session_uid', user.uid); showApp(); }
@@ -519,7 +448,7 @@
             const tbody = document.getElementById('data-table-body');
             tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">加载中...</td></tr>';
             let data = [];
-            try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'))); snap.forEach(d => data.push({ ...d.data(), id: d.id })); } catch(e) { console.error(e); }
+            try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'))); snap.forEach(d => data.push({ ...d.data(), id: d.id })); } catch(e) {}
             if(appUser.role !== 'admin') data = data.filter(i => i.creatorId === appUser.uid);
             data.sort((a,b) => b.timestamp - a.timestamp); cachedEvaluations = data; renderTable(data); updateStats(data);
         };
@@ -587,39 +516,18 @@
             const overlay = document.getElementById('loading-overlay');
             overlay.style.display = 'flex';
             try {
-                // 1. Force explicit height to ensure full capture
-                const h = el.scrollHeight; 
-                const originalH = el.style.height; 
-                el.style.height = h + 'px'; // Temporarily expand
-                
+                const h = el.scrollHeight; const originalH = el.style.height; el.style.height = h + 'px'; 
                 const clone = el.cloneNode(true);
-                // Set fixed width and explicit height for clone
-                clone.style.width = '800px'; 
-                clone.style.height = h + 'px'; // Explicit height
-                clone.style.position = 'fixed'; 
-                clone.style.top = '-9999px'; 
-                clone.style.left = '-9999px';
-                
+                clone.style.width = '800px'; clone.style.height = h + 'px'; clone.style.position = 'fixed'; clone.style.top = '-9999px'; clone.style.left = '-9999px';
                 const origC = el.querySelector('canvas'); const cloneC = clone.querySelector('canvas');
                 if(origC && cloneC) { const img = document.createElement('img'); img.src = origC.toDataURL(); img.style.width='100%'; cloneC.parentNode.replaceChild(img, cloneC); }
-                
                 document.body.appendChild(clone);
-                
-                const canvas = await html2canvas(clone, { 
-                    scale: 2, 
-                    useCORS: true, 
-                    backgroundColor: '#ffffff', 
-                    height: h, 
-                    windowHeight: h 
-                });
-                
+                const canvas = await html2canvas(clone, { scale: 2, useCORS: true, backgroundColor: '#ffffff', height: h, windowHeight: h });
                 const a = document.createElement('a');
                 a.download = `督导反馈_${document.getElementById('displayTeacher').innerText}.png`;
                 a.href = canvas.toDataURL();
                 a.click();
-                
-                document.body.removeChild(clone);
-                el.style.height = originalH; // Restore
+                document.body.removeChild(clone); el.style.height = originalH;
             } catch(e) { console.error(e); alert("截图失败"); }
             overlay.style.display = 'none';
         }
