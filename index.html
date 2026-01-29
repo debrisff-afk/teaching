@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>寒假班教学督导管理系统</title>
+    <title>家辉培优 - 教学督导管理系统</title>
     
     <!-- 第三方库 -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -11,31 +11,44 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
-    <!-- Firebase SDK (按需加载) -->
+    <!-- Tailwind 自定义配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        jhblue: '#009FE8', // 家辉蓝
+                        jhorange: '#FF6B6B', // 活力橙
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ================= 全局状态管理 =================
-        let isLocalMode = false; // 默认为云端模式，初始化时检测
+        let isLocalMode = false;
         let db = null;
         let auth = null;
-        let currentUser = null;
+        let firebaseUser = null; // Firebase 层的用户
+        let appUser = null;      // 应用层的用户 (包含角色信息)
         let appId = 'default-app-id';
+        let allUsers = [];       // 管理员用的用户列表缓存
 
         // 初始化函数
         async function initSystem() {
-            // 检测是否处于本地环境 (检查 __firebase_config 是否存在)
             if (typeof __firebase_config === 'undefined') {
-                console.warn("⚠️ 检测到本地环境，切换至 LocalStorage 模式");
+                console.warn("⚠️ 本地模式");
                 isLocalMode = true;
-                showToast("当前为离线模式，数据保存在本地浏览器");
-                window.loadEvaluations(); // 直接加载本地数据
+                checkLocalLogin();
                 return;
             }
 
-            // 云端模式初始化
             try {
                 const firebaseConfig = JSON.parse(__firebase_config);
                 appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -43,706 +56,825 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 认证
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
                     await signInAnonymously(auth);
                 }
 
-                // 监听登录状态
-                onAuthStateChanged(auth, (user) => {
+                onAuthStateChanged(auth, async (user) => {
                     if (user) {
-                        currentUser = user;
-                        window.loadEvaluations();
+                        firebaseUser = user;
+                        await checkCloudLogin(user.uid);
                     }
                 });
 
             } catch (e) {
-                console.error("Firebase 初始化失败，降级为本地模式:", e);
+                console.error("Firebase Error:", e);
                 isLocalMode = true;
-                showToast("云端连接失败，已切换至本地模式");
-                window.loadEvaluations();
+                checkLocalLogin();
             }
         }
 
-        // ================= 数据操作层 (适配器模式) =================
+        // ================= 账户与权限逻辑 =================
 
-        // 1. 保存数据
+        // 检查云端登录状态 (即是否已经在 public/users 注册过)
+        async function checkCloudLogin(uid) {
+            try {
+                // Rule 1: Use Public path for shared user data so Admin can manage
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                const q = query(usersRef);
+                const snapshot = await getDocs(q);
+                let foundUser = null;
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.uid === uid) {
+                        foundUser = { ...data, id: doc.id }; // Store doc id for updates
+                    }
+                });
+
+                if (foundUser) {
+                    appUser = foundUser;
+                    showApp();
+                } else {
+                    showLoginModal(); // 需要注册
+                }
+            } catch (e) {
+                console.error("Check login failed:", e);
+                showLoginModal();
+            }
+        }
+
+        function checkLocalLogin() {
+            const saved = localStorage.getItem('jh_current_user');
+            if (saved) {
+                appUser = JSON.parse(saved);
+                showApp();
+            } else {
+                showLoginModal();
+            }
+        }
+
+        // 注册/登录处理
+        window.handleLogin = async (name, role) => {
+            const newUserData = {
+                name: name,
+                role: role, // 'supervisor' | 'admin'
+                uid: firebaseUser ? firebaseUser.uid : 'local_' + Date.now(),
+                createdAt: Date.now()
+            };
+
+            if (isLocalMode) {
+                localStorage.setItem('jh_current_user', JSON.stringify(newUserData));
+                appUser = newUserData;
+            } else {
+                try {
+                    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                    await addDoc(usersRef, newUserData);
+                    appUser = newUserData;
+                } catch (e) {
+                    alert("注册失败: " + e.message);
+                    return;
+                }
+            }
+            showApp();
+        };
+
+        // 退出登录
+        window.handleLogout = () => {
+            appUser = null;
+            if (isLocalMode) localStorage.removeItem('jh_current_user');
+            location.reload(); // 简单粗暴刷新以重置状态
+        };
+
+        function showLoginModal() {
+            document.getElementById('login-modal').classList.remove('hidden');
+            document.getElementById('app-container').classList.add('hidden');
+        }
+
+        function showApp() {
+            document.getElementById('login-modal').classList.add('hidden');
+            document.getElementById('app-container').classList.remove('hidden');
+            
+            // 更新侧边栏用户信息
+            document.getElementById('sidebar-username').innerText = appUser.name;
+            document.getElementById('sidebar-role').innerText = appUser.role === 'admin' ? '管理员' : '督导老师';
+            
+            // 如果是管理员，显示管理入口
+            if (appUser.role === 'admin') {
+                document.getElementById('nav-admin').classList.remove('hidden');
+            } else {
+                document.getElementById('nav-admin').classList.add('hidden');
+            }
+
+            // 预填督导姓名
+            const supervisorInput = document.getElementById('supervisorName');
+            if(supervisorInput) supervisorInput.value = appUser.name;
+
+            window.loadEvaluations();
+        }
+
+        // ================= 数据操作层 (带权限过滤) =================
+
         window.saveEvaluationToDB = async (data) => {
             const record = {
                 ...data,
+                creatorId: appUser.uid, // 关键：绑定创建者
+                creatorName: appUser.name,
                 timestamp: Date.now(),
                 dateStr: new Date().toLocaleDateString()
             };
 
             if (isLocalMode) {
-                // --- 本地模式 ---
-                try {
-                    const localData = JSON.parse(localStorage.getItem('supervision_records') || '[]');
-                    // 模拟 ID
-                    record.id = 'local_' + Date.now();
-                    localData.push(record);
-                    localStorage.setItem('supervision_records', JSON.stringify(localData));
-                    showToast("✅ 记录已保存 (本地)");
-                    await window.loadEvaluations();
-                } catch (e) {
-                    alert("本地保存失败，可能是浏览器存储已满");
-                }
+                const localData = JSON.parse(localStorage.getItem('jh_evaluations') || '[]');
+                record.id = 'local_' + Date.now();
+                localData.push(record);
+                localStorage.setItem('jh_evaluations', JSON.stringify(localData));
+                showToast("✅ 本地保存成功");
+                await window.loadEvaluations();
             } else {
-                // --- 云端模式 ---
-                if (!currentUser) { alert("正在连接数据库..."); return; }
                 try {
-                    const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'evaluations');
+                    // Use Public path so Admins can see it too
+                    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations');
                     await addDoc(colRef, record);
-                    showToast("✅ 记录已同步至云端");
+                    showToast("✅ 云端同步成功");
                     await window.loadEvaluations();
                 } catch (e) {
                     console.error(e);
-                    alert("云端保存失败，请检查网络");
+                    alert("保存失败");
                 }
             }
         };
 
-        // 2. 加载数据
         window.loadEvaluations = async () => {
             let evaluations = [];
             const tbody = document.getElementById('data-table-body');
-            
-            // 显示加载状态
-            if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>正在加载数据...</td></tr>`;
+            if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400"><i class="fas fa-spinner fa-spin mr-2"></i>加载数据中...</td></tr>`;
 
             try {
                 if (isLocalMode) {
-                    // --- 本地模式 ---
-                    const raw = localStorage.getItem('supervision_records');
+                    const raw = localStorage.getItem('jh_evaluations');
                     if (raw) evaluations = JSON.parse(raw);
-                    // 模拟网络延迟带来的体验一致性
-                    await new Promise(r => setTimeout(r, 300));
                 } else {
-                    // --- 云端模式 ---
-                    if (!currentUser) return;
-                    const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'evaluations');
-                    const q = query(colRef);
-                    const querySnapshot = await getDocs(q);
-                    querySnapshot.forEach((doc) => {
+                    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations');
+                    const q = query(colRef); // Fetch all first, then filter in memory (Rule #2 compliant)
+                    const snapshot = await getDocs(q);
+                    snapshot.forEach((doc) => {
                         evaluations.push({ id: doc.id, ...doc.data() });
                     });
                 }
 
-                // 排序：最新的在前面
-                evaluations.sort((a, b) => b.timestamp - a.timestamp);
-                
-                // 缓存数据供导出使用
-                window.cachedEvaluations = evaluations;
+                // === 权限过滤核心逻辑 ===
+                let filteredEvaluations = evaluations;
+                if (appUser.role !== 'admin') {
+                    // 普通督导只看自己的
+                    filteredEvaluations = evaluations.filter(e => e.creatorId === appUser.uid);
+                }
+                // 管理员看所有 (无需过滤)
 
-                // 渲染界面
-                if(window.renderTableGlobal) window.renderTableGlobal(evaluations);
-                if(window.updateDashboardGlobal) window.updateDashboardGlobal(evaluations);
+                // 排序
+                filteredEvaluations.sort((a, b) => b.timestamp - a.timestamp);
+                window.cachedEvaluations = filteredEvaluations;
+
+                // 渲染
+                if(window.renderTableGlobal) window.renderTableGlobal(filteredEvaluations);
+                if(window.updateDashboardGlobal) window.updateDashboardGlobal(filteredEvaluations);
 
             } catch (error) {
-                console.error("加载失败:", error);
-                if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-400">数据加载失败</td></tr>`;
+                console.error(error);
+                if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center text-red-400 p-4">数据加载异常</td></tr>`;
             }
         };
 
-        // 启动系统
+        // ================= 用户管理 (管理员功能) =================
+        
+        window.loadAllUsers = async () => {
+            if (appUser.role !== 'admin') return;
+            
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">加载中...</td></tr>';
+
+            let users = [];
+            if (isLocalMode) {
+                // 本地模式只能演示自己
+                users = [appUser];
+            } else {
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'jh_users');
+                const snapshot = await getDocs(query(usersRef));
+                snapshot.forEach(doc => users.push({ ...doc.data(), id: doc.id }));
+            }
+            allUsers = users;
+            renderUserTable(users);
+        }
+
+        function renderUserTable(users) {
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '';
+            users.forEach(u => {
+                const isMe = u.uid === appUser.uid;
+                tbody.innerHTML += `
+                    <tr class="border-b">
+                        <td class="p-3">${u.name}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded text-xs ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
+                                ${u.role === 'admin' ? '管理员' : '督导'}
+                            </span>
+                        </td>
+                        <td class="p-3 text-xs text-gray-500">${new Date(u.createdAt).toLocaleDateString()}</td>
+                        <td class="p-3">
+                            ${!isMe && !isLocalMode ? `
+                            <button onclick="window.toggleUserRole('${u.id}', '${u.role}')" class="text-blue-600 text-xs hover:underline">
+                                ${u.role === 'admin' ? '降为督导' : '设为管理'}
+                            </button>` : '<span class="text-gray-300 text-xs">--</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        window.toggleUserRole = async (docId, currentRole) => {
+            const newRole = currentRole === 'admin' ? 'supervisor' : 'admin';
+            if(confirm(`确定将该用户权限修改为 ${newRole === 'admin' ? '管理员' : '普通督导'} 吗？`)) {
+                try {
+                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', docId);
+                    await setDoc(userRef, { role: newRole }, { merge: true });
+                    showToast("权限修改成功");
+                    window.loadAllUsers();
+                } catch(e) {
+                    alert("修改失败");
+                }
+            }
+        }
+
         initSystem();
-
-        // 暴露查看函数
-        window.viewHistoryRecord = (id) => {
-            const record = window.cachedEvaluations.find(e => e.id === id);
-            if(record) {
-                window.renderReportFromData(record);
-            }
-        };
     </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
-        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f8fafc; }
+        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f0f9ff; } /* 极浅蓝背景 */
         
-        .nav-item.active { background-color: #e0f2fe; color: #0284c7; border-right: 4px solid #0284c7; }
-        .score-input:focus { ring: 2px; ring-color: #3b82f6; }
+        .nav-item.active { background-color: #e0f2fe; color: #009FE8; border-right: 4px solid #009FE8; }
+        .score-input:focus { ring: 2px; ring-color: #009FE8; }
         .check-item { cursor: pointer; user-select: none; transition: all 0.2s; }
-        .check-item.checked { color: #059669; font-weight: bold; background-color: #d1fae5; border-color: #34d399; }
+        .check-item.checked { color: #009FE8; font-weight: bold; background-color: #e0f2fe; border-color: #009FE8; }
         
-        /* Toast 提示 */
-        #toast-container {
-            position: fixed; top: 20px; right: 20px; z-index: 9999;
-            transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
-        }
+        /* Logo SVG 样式 */
+        .logo-icon { width: 40px; height: 40px; }
+        
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; transform: translateX(120%); transition: transform 0.3s; }
         #toast-container.show { transform: translateX(0); }
         
-        /* Loading 遮罩层 */
-        #loading-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255,255,255,0.9); z-index: 100;
-            display: none; align-items: center; justify-content: center;
-            flex-direction: column;
-        }
+        #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 100; display: none; align-items: center; justify-content: center; flex-direction: column; }
         
         @media print {
             .no-print { display: none !important; }
             #sidebar { display: none !important; }
-            #main-content { margin: 0 !important; width: 100% !important; }
             #report-view { display: block !important; position: static !important; overflow: visible !important; }
-            #report-view > div { margin: 0 !important; box-shadow: none !important; border-radius: 0 !important; max-width: 100% !important; }
-            #input-view, #home-view, #data-view, #tool-view { display: none !important; }
+            #input-view, #home-view, #data-view, #tool-view, #admin-view { display: none !important; }
             body { background-color: white; overflow: visible !important; }
-            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
     </style>
 </head>
 <body class="flex h-screen overflow-hidden text-slate-800">
 
-    <!-- Toast 提示框 -->
+    <!-- Toast -->
     <div id="toast-container" class="bg-slate-800 text-white px-6 py-3 rounded-lg shadow-xl flex items-center gap-3">
-        <i class="fas fa-info-circle text-blue-400"></i>
-        <span id="toast-message" class="font-medium text-sm">操作成功</span>
+        <i class="fas fa-check-circle text-jhorange"></i>
+        <span id="toast-message">操作成功</span>
     </div>
 
-    <!-- Loading Overlay -->
+    <!-- Loading -->
     <div id="loading-overlay">
-        <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-blue-600 mb-4"></div>
-        <div class="text-slate-600 font-bold text-lg">正在处理...</div>
-        <div class="text-slate-400 text-sm mt-1">生成高清图片可能需要几秒钟</div>
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-jhblue mb-4"></div>
+        <div class="text-jhblue font-bold text-lg">处理中...</div>
     </div>
 
-    <!-- 侧边栏导航 -->
-    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col no-print z-20 hidden md:flex">
-        <div class="p-6 border-b border-slate-100">
-            <h1 class="text-xl font-bold text-slate-800 flex items-center">
-                <i class="fas fa-graduation-cap text-blue-600 mr-2"></i> 督导系统
-            </h1>
-            <p class="text-xs text-slate-400 mt-1">Teaching Supervision OS</p>
+    <!-- 登录/注册 Modal -->
+    <div id="login-modal" class="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+            <div class="text-center mb-8">
+                <!-- SVG Logo -->
+                <svg class="w-16 h-16 mx-auto mb-4" viewBox="0 0 200 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M40 10C25 10 15 20 15 35C15 50 25 60 40 60C55 60 65 50 65 35" stroke="#009FE8" stroke-width="8" stroke-linecap="round"/>
+                    <circle cx="40" cy="35" r="10" fill="#009FE8"/>
+                    <path d="M15 35L5 15L35 25" fill="#FF6B6B"/> <!-- 橙色箭头 -->
+                    <text x="80" y="45" font-family="Noto Sans SC" font-weight="bold" font-size="36" fill="#009FE8">家辉培优</text>
+                </svg>
+                <h2 class="text-xl font-bold text-slate-700">教学督导系统登录</h2>
+            </div>
+            <form onsubmit="event.preventDefault(); window.handleLogin(this.name.value, this.role.value);" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-slate-600 mb-1">您的姓名</label>
+                    <input type="text" name="name" required class="w-full border-2 border-slate-200 rounded-lg p-3 focus:border-jhblue outline-none transition" placeholder="请输入真实姓名">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-600 mb-1">角色选择</label>
+                    <select name="role" class="w-full border-2 border-slate-200 rounded-lg p-3 focus:border-jhblue outline-none bg-white">
+                        <option value="supervisor">督导老师</option>
+                        <option value="admin">系统管理员 (需授权)</option>
+                    </select>
+                </div>
+                <button type="submit" class="w-full bg-jhblue text-white font-bold py-3 rounded-lg hover:bg-sky-600 transition shadow-lg shadow-blue-200">
+                    进入系统
+                </button>
+            </form>
+            <p class="text-xs text-center text-slate-400 mt-4">初始登录将自动创建账号</p>
         </div>
-        
-        <nav class="flex-1 p-4 space-y-2">
-            <a href="javascript:void(0)" onclick="switchPage('home')" id="nav-home" class="nav-item active flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition">
-                <i class="fas fa-chart-pie w-6"></i>
-                <span class="font-medium">仪表盘 (Home)</span>
-            </a>
-            <a href="javascript:void(0)" onclick="switchPage('tool')" id="nav-tool" class="nav-item flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition">
-                <i class="fas fa-clipboard-check w-6"></i>
-                <span class="font-medium">新建听课 (New)</span>
-            </a>
-            <a href="javascript:void(0)" onclick="switchPage('data')" id="nav-data" class="nav-item flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition">
-                <i class="fas fa-database w-6"></i>
-                <span class="font-medium">数据库 (Data)</span>
-            </a>
-        </nav>
-        
-        <div class="p-4 border-t border-slate-100">
-            <div class="bg-blue-50 rounded-lg p-3">
-                <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center text-blue-700 font-bold text-xs">SV</div>
-                    <div>
-                        <div class="text-sm font-bold text-slate-700">当前用户</div>
-                        <div class="text-xs text-slate-500">Supervisor</div>
-                    </div>
+    </div>
+
+    <!-- App 容器 -->
+    <div id="app-container" class="flex w-full h-full hidden">
+        <!-- 侧边栏 -->
+        <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col no-print z-20 hidden md:flex">
+            <div class="p-6 border-b border-slate-100 flex items-center gap-3">
+                <!-- SVG Logo Mini -->
+                <svg class="w-8 h-8" viewBox="0 0 60 60" fill="none">
+                    <path d="M30 5C15 5 5 15 5 30C5 45 15 55 30 55C45 55 55 45 55 30" stroke="#009FE8" stroke-width="6"/>
+                    <circle cx="30" cy="30" r="8" fill="#009FE8"/>
+                    <path d="M5 30L0 10L20 20" fill="#FF6B6B"/>
+                </svg>
+                <div>
+                    <h1 class="text-lg font-bold text-jhblue tracking-wide">家辉培优</h1>
+                    <p class="text-[10px] text-slate-400">Jiahui Education</p>
                 </div>
             </div>
-        </div>
-    </aside>
-
-    <!-- 移动端顶部栏 -->
-    <div class="md:hidden fixed top-0 left-0 right-0 bg-white border-b border-slate-200 p-4 z-30 flex justify-between items-center shadow-sm">
-        <h1 class="text-lg font-bold text-slate-800">督导系统</h1>
-        <div class="flex gap-4">
-             <button onclick="switchPage('home')" class="text-slate-600"><i class="fas fa-home"></i></button>
-             <button onclick="switchPage('tool')" class="text-slate-600"><i class="fas fa-plus-circle"></i></button>
-             <button onclick="switchPage('data')" class="text-slate-600"><i class="fas fa-list"></i></button>
-        </div>
-    </div>
-
-    <!-- 主内容区 -->
-    <main id="main-content" class="flex-1 overflow-y-auto relative pt-16 md:pt-0">
-        
-        <!-- 1. 仪表盘页面 -->
-        <div id="home-view" class="p-8 max-w-6xl mx-auto">
-            <h2 class="text-2xl font-bold text-slate-800 mb-6">👋 欢迎回来，督导老师</h2>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <div class="flex justify-between items-start mb-4">
-                        <div>
-                            <p class="text-slate-500 text-sm">累计听课</p>
-                            <h3 id="stat-total" class="text-3xl font-bold text-slate-800">0</h3>
+            <nav class="flex-1 p-4 space-y-2">
+                <a href="javascript:void(0)" onclick="switchPage('home')" id="nav-home" class="nav-item active flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition">
+                    <i class="fas fa-chart-pie w-6 text-center"></i>
+                    <span class="font-medium ml-2">仪表盘</span>
+                </a>
+                <a href="javascript:void(0)" onclick="switchPage('tool')" id="nav-tool" class="nav-item flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition">
+                    <i class="fas fa-plus-circle w-6 text-center"></i>
+                    <span class="font-medium ml-2">新建听课</span>
+                </a>
+                <a href="javascript:void(0)" onclick="switchPage('data')" id="nav-data" class="nav-item flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition">
+                    <i class="fas fa-database w-6 text-center"></i>
+                    <span class="font-medium ml-2">听课数据库</span>
+                </a>
+                <!-- 管理员入口 -->
+                <a href="javascript:void(0)" onclick="switchPage('admin')" id="nav-admin" class="nav-item flex items-center p-3 rounded-lg text-slate-600 hover:bg-slate-50 transition hidden">
+                    <i class="fas fa-users-cog w-6 text-center"></i>
+                    <span class="font-medium ml-2">用户权限管理</span>
+                </a>
+            </nav>
+            
+            <div class="p-4 border-t border-slate-100">
+                <div class="bg-slate-50 rounded-lg p-3 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-jhblue text-white flex items-center justify-center font-bold text-xs">
+                            <i class="fas fa-user"></i>
                         </div>
-                        <div class="bg-blue-100 p-2 rounded-lg text-blue-600"><i class="fas fa-folder-open"></i></div>
-                    </div>
-                    <p class="text-xs text-slate-400">所有历史记录</p>
-                </div>
-                
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <div class="flex justify-between items-start mb-4">
                         <div>
-                            <p class="text-slate-500 text-sm">平均得分</p>
-                            <h3 id="stat-avg" class="text-3xl font-bold text-slate-800">-</h3>
+                            <div id="sidebar-username" class="text-sm font-bold text-slate-700">用户</div>
+                            <div id="sidebar-role" class="text-xs text-slate-500">角色</div>
                         </div>
-                        <div class="bg-purple-100 p-2 rounded-lg text-purple-600"><i class="fas fa-star"></i></div>
                     </div>
-                    <p class="text-xs text-slate-400">教学质量综合指数</p>
-                </div>
-
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <div class="flex justify-between items-start mb-4">
-                        <div>
-                            <p class="text-slate-500 text-sm">本月听课</p>
-                            <h3 id="stat-month" class="text-3xl font-bold text-slate-800">0</h3>
-                        </div>
-                        <div class="bg-green-100 p-2 rounded-lg text-green-600"><i class="fas fa-calendar-check"></i></div>
-                    </div>
-                    <p class="text-xs text-slate-400">最近30天动态</p>
+                    <button onclick="handleLogout()" class="text-slate-400 hover:text-jhorange" title="退出登录">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
                 </div>
             </div>
+        </aside>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-6 text-white shadow-lg">
-                    <h3 class="text-lg font-bold mb-2">开始新的听课任务？</h3>
-                    <p class="text-blue-100 text-sm mb-6">使用最新的“三有”标准（有趣、有效、有用）进行即时评估。</p>
-                    <button onclick="switchPage('tool')" class="bg-white text-blue-700 px-6 py-2 rounded-lg font-bold hover:bg-blue-50 transition shadow">
-                        <i class="fas fa-plus mr-2"></i> 新建评估
-                    </button>
+        <!-- 移动端 Header -->
+        <div class="md:hidden fixed top-0 left-0 right-0 bg-white border-b border-slate-200 p-4 z-30 flex justify-between items-center shadow-sm">
+            <span class="text-jhblue font-bold">家辉培优督导</span>
+            <div class="flex gap-4">
+                <button onclick="switchPage('home')"><i class="fas fa-home text-slate-600"></i></button>
+                <button onclick="switchPage('tool')"><i class="fas fa-plus-circle text-jhblue"></i></button>
+            </div>
+        </div>
+
+        <!-- 主内容区 -->
+        <main id="main-content" class="flex-1 overflow-y-auto relative pt-16 md:pt-0">
+            
+            <!-- 1. 仪表盘 -->
+            <div id="home-view" class="p-8 max-w-6xl mx-auto">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6">👋 <span id="welcome-msg">欢迎回来</span></h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-jhblue">
+                        <div class="flex justify-between items-start mb-2">
+                            <p class="text-slate-500 text-sm">累计听课</p>
+                            <div class="bg-blue-50 p-2 rounded text-jhblue"><i class="fas fa-folder-open"></i></div>
+                        </div>
+                        <h3 id="stat-total" class="text-3xl font-bold text-slate-800">0</h3>
+                        <p class="text-xs text-slate-400 mt-1">Total Records</p>
+                    </div>
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-jhorange">
+                        <div class="flex justify-between items-start mb-2">
+                            <p class="text-slate-500 text-sm">本月新增</p>
+                            <div class="bg-orange-50 p-2 rounded text-jhorange"><i class="fas fa-calendar-plus"></i></div>
+                        </div>
+                        <h3 id="stat-month" class="text-3xl font-bold text-slate-800">0</h3>
+                        <p class="text-xs text-slate-400 mt-1">This Month</p>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-sm border-l-4 border-purple-500">
+                        <div class="flex justify-between items-start mb-2">
+                            <p class="text-slate-500 text-sm">平均得分</p>
+                            <div class="bg-purple-50 p-2 rounded text-purple-600"><i class="fas fa-chart-line"></i></div>
+                        </div>
+                        <h3 id="stat-avg" class="text-3xl font-bold text-slate-800">-</h3>
+                        <p class="text-xs text-slate-400 mt-1">Average Score</p>
+                    </div>
+                </div>
+
+                <!-- 快捷入口 -->
+                <div class="bg-gradient-to-r from-sky-500 to-jhblue rounded-xl p-8 text-white shadow-lg mb-8 relative overflow-hidden">
+                    <div class="relative z-10">
+                        <h3 class="text-xl font-bold mb-2">准备开始新的听课？</h3>
+                        <p class="text-blue-100 text-sm mb-6 max-w-md">使用最新的五维评估模型（有趣、有效、有用、感知、结果）进行记录。系统将自动生成可视化雷达图报告。</p>
+                        <button onclick="switchPage('tool')" class="bg-white text-jhblue px-6 py-2 rounded-lg font-bold hover:bg-blue-50 transition shadow">
+                            <i class="fas fa-plus mr-2"></i> 新建评估记录
+                        </button>
+                    </div>
+                    <!-- 装饰背景 -->
+                    <i class="fas fa-clipboard-check absolute -bottom-4 -right-4 text-9xl text-white opacity-10"></i>
                 </div>
 
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h3 class="text-lg font-bold text-slate-800 mb-4">📋 最近动态</h3>
-                    <div id="recent-activity" class="space-y-2">
-                        <p class="text-sm text-slate-400">数据加载中...</p>
+                    <div id="recent-activity" class="space-y-3">
+                        <p class="text-sm text-slate-400 py-4 text-center">暂无动态</p>
                     </div>
-                    <button onclick="switchPage('data')" class="text-blue-600 text-sm font-medium mt-4 hover:underline">查看全部记录 &rarr;</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 2. 数据库页面 -->
-        <div id="data-view" class="hidden p-8 max-w-6xl mx-auto">
-            <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h2 class="text-2xl font-bold text-slate-800">听课数据库</h2>
-                <div class="flex gap-2">
-                    <button onclick="exportToCSV()" class="bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 text-sm font-medium shadow-sm flex items-center">
-                        <i class="fas fa-file-excel mr-2"></i> 导出 CSV
-                    </button>
-                    <button onclick="window.loadEvaluations()" class="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-50 text-sm font-medium shadow-sm">
-                        <i class="fas fa-sync-alt mr-1"></i> 刷新
-                    </button>
-                    <button onclick="switchPage('tool')" class="bg-blue-600 text-white px-4 py-1.5 rounded hover:bg-blue-700 text-sm font-medium shadow-sm">
-                        <i class="fas fa-plus mr-1"></i> 新建
-                    </button>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold border-b border-slate-200">
+            <!-- 2. 数据库 -->
+            <div id="data-view" class="hidden p-8 max-w-6xl mx-auto">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl font-bold text-slate-800">听课数据库</h2>
+                    <div class="flex gap-2">
+                        <button onclick="exportToCSV()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm font-medium shadow flex items-center">
+                            <i class="fas fa-file-excel mr-2"></i> 导出报表
+                        </button>
+                        <button onclick="window.loadEvaluations()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium">
+                            <i class="fas fa-sync-alt mr-2"></i> 刷新
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold border-b border-slate-200">
+                                <tr>
+                                    <th class="p-4">日期/类型</th>
+                                    <th class="p-4">督导</th>
+                                    <th class="p-4">教师</th>
+                                    <th class="p-4">课题</th>
+                                    <th class="p-4">总分</th>
+                                    <th class="p-4">评级</th>
+                                    <th class="p-4">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="data-table-body" class="text-sm text-slate-700 divide-y divide-slate-100">
+                                <!-- Data injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. 新建听课 (工具) -->
+            <div id="tool-view" class="hidden p-4 md:p-8 max-w-4xl mx-auto">
+                <header class="mb-6 border-b pb-4">
+                    <h1 class="text-2xl font-bold text-slate-800">新建评估记录</h1>
+                    <p class="text-slate-500 text-sm mt-1">请基于“有趣·有效·有用”的核心价值观进行客观评价</p>
+                </header>
+
+                <form id="evaluation-form" class="space-y-6 pb-24">
+                    <!-- 基础信息 -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <h2 class="text-lg font-bold mb-4 border-l-4 border-jhblue pl-3 text-slate-700">基础信息</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div>
+                                <label class="label-text">督导姓名</label>
+                                <input type="text" id="supervisorName" class="input-field" readonly>
+                            </div>
+                            <div>
+                                <label class="label-text">听课日期</label>
+                                <input type="date" id="date" class="input-field">
+                            </div>
+                            <div>
+                                <label class="label-text">教师姓名</label>
+                                <input type="text" id="teacherName" class="input-field" placeholder="授课教师">
+                            </div>
+                            <div>
+                                <label class="label-text">课程类型</label>
+                                <select id="courseType" class="input-field bg-white">
+                                    <option value="常规课">常规课</option>
+                                    <option value="分组课">分组课</option>
+                                    <option value="试听课">试听课</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="label-text">课程/班级/课题</label>
+                                <input type="text" id="topic" class="input-field" placeholder="例如：初二数学 - 平面几何辅助线">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 评分模块 -->
+                    <div class="space-y-4">
+                        <!-- Fun -->
+                        <div class="score-card border-l-4 border-purple-400">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="font-bold text-purple-700 text-lg">1. 有趣味 (Interest)</label>
+                                <input type="number" id="scoreFun" max="20" min="0" class="score-input" placeholder="0-20">
+                            </div>
+                            <div class="text-xs text-slate-400 mb-2 italic">📌 关注点：导入是否吸引人？互动是否有效？课堂氛围是否活跃？</div>
+                            <div id="tags-fun" class="flex gap-2 text-xs mb-3 flex-wrap">
+                                <span class="check-item" onclick="toggleCheck(this)">导入抓人</span>
+                                <span class="check-item" onclick="toggleCheck(this)">拒绝一言堂</span>
+                                <span class="check-item" onclick="toggleCheck(this)">氛围活跃</span>
+                                <span class="check-item" onclick="toggleCheck(this)">游戏化教学</span>
+                            </div>
+                            <textarea id="textFun" class="textarea-field" placeholder="具体的优点或不足..."></textarea>
+                        </div>
+
+                        <!-- Efficiency -->
+                        <div class="score-card border-l-4 border-blue-400">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="font-bold text-blue-700 text-lg">2. 有效率 (Efficiency)</label>
+                                <input type="number" id="scoreEff" max="20" min="0" class="score-input text-blue-700 border-blue-200" placeholder="0-20">
+                            </div>
+                            <div class="text-xs text-slate-400 mb-2 italic">📌 关注点：环节过渡是否自然？指令是否清晰？有无无效时间？</div>
+                            <div id="tags-eff" class="flex gap-2 text-xs mb-3 flex-wrap">
+                                <span class="check-item" onclick="toggleCheck(this)">无无效时间</span>
+                                <span class="check-item" onclick="toggleCheck(this)">指令清晰</span>
+                                <span class="check-item" onclick="toggleCheck(this)">节奏紧凑</span>
+                            </div>
+                            <textarea id="textEff" class="textarea-field" placeholder="具体的优点或不足..."></textarea>
+                        </div>
+
+                        <!-- Utility -->
+                        <div class="score-card border-l-4 border-green-400">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="font-bold text-green-700 text-lg">3. 有用处 (Utility)</label>
+                                <input type="number" id="scoreUse" max="20" min="0" class="score-input text-green-700 border-green-200" placeholder="0-20">
+                            </div>
+                            <div class="text-xs text-slate-400 mb-2 italic">📌 关注点：考点是否聚焦？方法是否落地？是否有总结清单？</div>
+                            <div id="tags-use" class="flex gap-2 text-xs mb-3 flex-wrap">
+                                <span class="check-item" onclick="toggleCheck(this)">考点聚焦</span>
+                                <span class="check-item" onclick="toggleCheck(this)">方法具体</span>
+                                <span class="check-item" onclick="toggleCheck(this)">有总结清单</span>
+                            </div>
+                            <textarea id="textUse" class="textarea-field" placeholder="具体的优点或不足..."></textarea>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Awareness -->
+                            <div class="score-card border-l-4 border-orange-300">
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="font-bold text-orange-700">4. 感知力</label>
+                                    <select id="scoreAwareness" class="score-select text-orange-700 border-orange-200">
+                                        <option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option>
+                                    </select>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mb-2 italic">📌 关注点：关注后排/走神学生？根据反馈调整节奏？</div>
+                                <textarea id="textAwareness" class="textarea-field" placeholder="评价..."></textarea>
+                            </div>
+                            <!-- Result -->
+                            <div class="score-card border-l-4 border-red-300">
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="font-bold text-red-700">5. 结果验收</label>
+                                    <select id="scoreResult" class="score-select text-red-700 border-red-200">
+                                        <option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option>
+                                    </select>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mb-2 italic">📌 关注点：全班正确率？二次核查？当堂纠错？</div>
+                                <textarea id="textResult" class="textarea-field" placeholder="评价..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 结论 -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div class="mb-4">
+                            <label class="label-text mb-2">💡 总体改进建议</label>
+                            <textarea id="textOverallImprovement" class="textarea-field h-24" placeholder="请给出1-3条核心建议"></textarea>
+                        </div>
+                        <div>
+                            <label class="label-text mb-2">🏁 最终听课结论</label>
+                            <textarea id="textFinalVerdict" class="textarea-field h-24" placeholder="综合评价..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- 底部保存 -->
+                    <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur border-t border-slate-200 flex justify-center z-40 md:static md:bg-transparent md:border-0 md:p-0">
+                        <button type="button" onclick="handleGenerateAndSave()" class="w-full max-w-md bg-jhblue text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-200 hover:bg-sky-600 transition transform hover:-translate-y-1">
+                            <i class="fas fa-save mr-2"></i> 生成评估报告
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 4. 管理员面板 -->
+            <div id="admin-view" class="hidden p-8 max-w-6xl mx-auto">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6">用户权限管理</h2>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
                             <tr>
-                                <th class="p-3">日期/类型</th>
-                                <th class="p-3">督导</th>
-                                <th class="p-3">教师</th>
-                                <th class="p-3">课题</th>
-                                <th class="p-3">总分</th>
-                                <th class="p-3">评级</th>
-                                <th class="p-3">操作</th>
+                                <th class="p-4">姓名</th>
+                                <th class="p-4">角色</th>
+                                <th class="p-4">注册时间</th>
+                                <th class="p-4">操作</th>
                             </tr>
                         </thead>
-                        <tbody id="data-table-body" class="text-sm text-slate-700 divide-y divide-slate-100">
-                            <tr><td colspan="7" class="p-4 text-center text-slate-400">正在同步数据...</td></tr>
+                        <tbody id="user-table-body">
+                            <!-- Users injected here -->
                         </tbody>
                     </table>
                 </div>
             </div>
-        </div>
 
-        <!-- 3. 听课工具页面 -->
-        <div id="tool-view" class="hidden p-4 md:p-8 max-w-4xl mx-auto">
-            <header class="mb-6 flex justify-between items-center">
-                <div>
-                    <h1 class="text-2xl font-bold text-slate-800">新建评估</h1>
-                    <p class="text-slate-500 text-sm">核心价值观：有趣味 · 有效率 · 有用处</p>
-                </div>
-                <button type="button" onclick="fillDemoData()" class="text-xs text-blue-400 underline">填入测试数据</button>
-            </header>
-
-            <form id="evaluation-form" class="space-y-6 pb-20">
-                <!-- 基础信息 -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <h2 class="text-lg font-bold mb-4 border-l-4 border-blue-500 pl-3">基础信息</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-slate-600 mb-1">督导姓名</label>
-                            <input type="text" id="supervisorName" class="w-full border-slate-300 rounded-lg p-2 border focus:ring-2 focus:ring-blue-500" placeholder="听课人姓名">
-                        </div>
-                         <div>
-                            <label class="block text-sm font-medium text-slate-600 mb-1">听课日期</label>
-                            <input type="date" id="date" class="w-full border-slate-300 rounded-lg p-2 border focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-600 mb-1">教师姓名</label>
-                            <input type="text" id="teacherName" class="w-full border-slate-300 rounded-lg p-2 border focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-600 mb-1">课程类型</label>
-                            <select id="courseType" class="w-full border-slate-300 rounded-lg p-2 border focus:ring-2 focus:ring-blue-500 bg-white">
-                                <option value="常规课">常规课</option>
-                                <option value="分组课">分组课</option>
-                            </select>
-                        </div>
-                        <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-slate-600 mb-1">课程/班级/课题</label>
-                            <input type="text" id="topic" class="w-full border-slate-300 rounded-lg p-2 border focus:ring-2 focus:ring-blue-500" placeholder="例如：寒假英语班 - 过去时态">
-                        </div>
-                         <!-- 隐藏不用的字段保持兼容性 -->
-                         <input type="hidden" id="className">
-                    </div>
-                </div>
-
-                <!-- 评分区域 -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-8">
-                    <!-- Fun -->
-                    <div class="p-4 bg-purple-50 rounded-lg border border-purple-100">
-                        <div class="flex justify-between items-center mb-3">
-                            <label class="font-bold text-purple-800"><i class="fas fa-laugh-beam mr-2"></i>1. 有趣味 (Interest)</label>
-                            <input type="number" id="scoreFun" max="20" min="0" class="w-20 text-center border-2 border-purple-200 rounded-lg p-1 font-bold text-purple-700" placeholder="0-20">
-                        </div>
-                        <div id="tags-fun" class="flex gap-2 text-xs text-slate-600 mb-2 flex-wrap">
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">导入抓人</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">拒绝一言堂</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">氛围活跃</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">游戏化教学</span>
-                        </div>
-                        <textarea id="textFun" class="w-full text-sm p-2 rounded border border-purple-200" rows="2" placeholder="评价与建议..."></textarea>
-                    </div>
-
-                    <!-- Efficiency -->
-                    <div class="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                        <div class="flex justify-between items-center mb-3">
-                            <label class="font-bold text-blue-800"><i class="fas fa-tachometer-alt mr-2"></i>2. 有效率 (Efficiency)</label>
-                            <input type="number" id="scoreEff" max="20" min="0" class="w-20 text-center border-2 border-blue-200 rounded-lg p-1 font-bold text-blue-700" placeholder="0-20">
-                        </div>
-                        <div id="tags-eff" class="flex gap-2 text-xs text-slate-600 mb-2 flex-wrap">
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">无无效时间</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">指令清晰</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">节奏紧凑</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">讲练比合理</span>
-                        </div>
-                        <textarea id="textEff" class="w-full text-sm p-2 rounded border border-blue-200" rows="2" placeholder="评价与建议..."></textarea>
-                    </div>
-
-                    <!-- Utility -->
-                    <div class="p-4 bg-green-50 rounded-lg border border-green-100">
-                        <div class="flex justify-between items-center mb-3">
-                            <label class="font-bold text-green-800"><i class="fas fa-bullseye mr-2"></i>3. 有用处 (Utility)</label>
-                            <input type="number" id="scoreUse" max="20" min="0" class="w-20 text-center border-2 border-green-200 rounded-lg p-1 font-bold text-green-700" placeholder="0-20">
-                        </div>
-                        <div id="tags-use" class="flex gap-2 text-xs text-slate-600 mb-2 flex-wrap">
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">考点聚焦</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">方法具体</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">有总结清单</span>
-                            <span class="check-item bg-white px-2 py-1 rounded border" onclick="toggleCheck(this)">干货满满</span>
-                        </div>
-                        <textarea id="textUse" class="w-full text-sm p-2 rounded border border-green-200" rows="2" placeholder="评价与建议..."></textarea>
-                    </div>
-
-                    <!-- Awareness & Result -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                            <div class="flex justify-between items-center mb-2">
-                                <label class="font-bold text-orange-800 text-sm"><i class="fas fa-eye mr-2"></i>4. 感知力</label>
-                                <select id="scoreAwareness" class="border-2 border-orange-200 rounded p-1 text-sm font-bold text-orange-700">
-                                    <option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option>
-                                </select>
+            <!-- 5. 报告预览 Modal -->
+            <div id="report-view" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-800/95 backdrop-blur-sm">
+                <div id="report-container" class="relative w-full max-w-[800px] mx-auto my-0 md:my-8 bg-white shadow-2xl overflow-hidden print:shadow-none print:m-0 min-h-screen md:min-h-fit md:rounded-lg">
+                    <!-- 报告头部 -->
+                    <div class="bg-gradient-to-r from-sky-500 to-jhblue text-white p-8 relative overflow-hidden">
+                        <div class="relative z-10 flex justify-between items-start">
+                            <div>
+                                <div class="text-xs opacity-80 uppercase tracking-widest mb-1">Teaching Quality Assessment</div>
+                                <h1 class="text-3xl font-bold flex items-center gap-3">
+                                    <svg class="w-8 h-8 bg-white rounded-full p-1" viewBox="0 0 60 60" fill="none">
+                                        <path d="M30 5C15 5 5 15 5 30C5 45 15 55 30 55C45 55 55 45 55 30" stroke="#009FE8" stroke-width="6"/>
+                                        <circle cx="30" cy="30" r="8" fill="#009FE8"/>
+                                        <path d="M5 30L0 10L20 20" fill="#FF6B6B"/>
+                                    </svg>
+                                    家辉培优 · 督导反馈
+                                </h1>
                             </div>
-                            <textarea id="textAwareness" class="w-full text-sm p-2 rounded border border-orange-200" rows="2" placeholder="评价..."></textarea>
-                        </div>
-                        <div class="p-4 bg-red-50 rounded-lg border border-red-100">
-                            <div class="flex justify-between items-center mb-2">
-                                <label class="font-bold text-red-800 text-sm"><i class="fas fa-check-circle mr-2"></i>5. 结果验收</label>
-                                <select id="scoreResult" class="border-2 border-red-200 rounded p-1 text-sm font-bold text-red-700">
-                                    <option value="0">-</option><option value="20">20(优)</option><option value="16">16(良)</option><option value="12">12(中)</option><option value="8">8(差)</option>
-                                </select>
-                            </div>
-                            <textarea id="textResult" class="w-full text-sm p-2 rounded border border-red-200" rows="2" placeholder="评价..."></textarea>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 总体结论 -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <div class="mb-4">
-                        <label class="block font-medium text-slate-700 mb-2">💡 总体改进建议</label>
-                        <textarea id="textOverallImprovement" class="w-full border-slate-300 rounded-lg p-3 border h-20 text-sm"></textarea>
-                    </div>
-                    <div class="mb-4">
-                        <label class="block font-medium text-slate-700 mb-2">🏁 听课结论</label>
-                        <textarea id="textFinalVerdict" class="w-full border-slate-300 rounded-lg p-3 border h-20 text-sm"></textarea>
-                    </div>
-                </div>
-
-                <!-- 底部按钮 -->
-                <div class="sticky bottom-4 z-10">
-                    <button type="button" onclick="handleGenerateAndSave()" class="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-blue-700 transition flex justify-center items-center">
-                        <i class="fas fa-save mr-2"></i> 保存数据并生成报告
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- 4. 报告预览页面 -->
-        <div id="report-view" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-600/95 backdrop-blur-sm">
-            <!-- 增加 id="report-container" 以便于 html2canvas 捕捉 -->
-            <div id="report-container" class="relative w-full max-w-3xl mx-auto my-0 md:my-8 bg-white md:rounded-xl shadow-2xl overflow-hidden print:shadow-none print:m-0 min-h-screen md:min-h-fit">
-                <!-- 报告头部 -->
-                <div class="bg-slate-800 text-white p-8 relative overflow-hidden">
-                    <div class="relative z-10 flex justify-between items-start">
-                        <div>
-                            <div class="text-xs opacity-60 uppercase tracking-widest mb-2">Teaching Quality Assessment</div>
-                            <h1 class="text-3xl font-bold mb-1">寒假班教学督导反馈</h1>
-                        </div>
-                        <div class="text-right">
-                            <div id="displayLevel" class="text-4xl font-bold text-yellow-400">A</div>
-                            <div class="text-xs uppercase mt-1 opacity-70">Rating Level</div>
-                        </div>
-                    </div>
-                    <!-- 基础信息条 -->
-                    <div class="mt-6 flex flex-wrap gap-6 text-sm opacity-90 border-t border-slate-600 pt-4">
-                         <span><i class="fas fa-user-tie mr-2 text-blue-300"></i>督导: <span id="displaySupervisor"></span></span>
-                        <span><i class="fas fa-chalkboard-teacher mr-2 text-blue-300"></i><span id="displayTeacher">王老师</span></span>
-                         <!-- 显示课程类型 -->
-                        <span><i class="fas fa-layer-group mr-2 text-blue-300"></i><span id="displayCourseType">常规课</span></span>
-                        <span><i class="fas fa-calendar mr-2 text-blue-300"></i><span id="displayDate">2023/01/01</span></span>
-                        <span class="block w-full mt-1"><i class="fas fa-book mr-2 text-blue-300"></i><span id="displayTopic">课题名称</span></span>
-                    </div>
-                </div>
-
-                <!-- 报告主体 -->
-                <div class="p-8 pb-32">
-                    <!-- 板块一：五维度雷达图 -->
-                    <div class="mb-10">
-                        <h3 class="flex items-center text-slate-800 font-bold text-lg mb-6"><span class="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">1</span>五维能力雷达图</h3>
-                        <div class="w-full max-w-md mx-auto h-64">
-                            <canvas id="radarChart"></canvas>
-                        </div>
-                        <div class="mt-4 text-center">
-                            <div class="inline-block bg-slate-100 px-4 py-2 rounded-lg">
-                                <span class="text-slate-500 text-sm font-bold uppercase mr-2">Total Score</span>
-                                <span id="displayTotalScore" class="text-3xl font-black text-blue-600">85</span>
-                                <span class="text-slate-400 text-sm ml-1">/ 100</span>
+                            <div class="text-right">
+                                <div id="displayLevel" class="text-5xl font-bold text-yellow-300 drop-shadow-md">A</div>
+                                <div class="text-xs uppercase mt-1 opacity-80">Rating Level</div>
                             </div>
                         </div>
+                        <div class="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm opacity-90 border-t border-white/20 pt-4">
+                            <span class="bg-white/20 px-2 py-1 rounded"><i class="fas fa-user-tie mr-1"></i>督导: <span id="displaySupervisor"></span></span>
+                            <span class="bg-white/20 px-2 py-1 rounded"><i class="fas fa-chalkboard-teacher mr-1"></i><span id="displayTeacher"></span></span>
+                            <span class="bg-white/20 px-2 py-1 rounded"><i class="fas fa-layer-group mr-1"></i><span id="displayCourseType"></span></span>
+                            <span class="bg-white/20 px-2 py-1 rounded"><i class="fas fa-book mr-1"></i><span id="displayTopic"></span></span>
+                            <span class="ml-auto"><span id="displayDate"></span></span>
+                        </div>
                     </div>
 
-                    <!-- 板块二：详细评价 -->
-                    <div class="mb-10">
-                        <h3 class="flex items-center text-slate-800 font-bold text-lg mb-6"><span class="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">2</span>维度评价详情</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 flex flex-col">
-                                <div class="flex justify-between items-center mb-2">
-                                    <strong class="text-purple-700 text-sm uppercase">有趣味</strong>
-                                    <span id="tagsFunDisplay" class="text-[10px] bg-purple-100 text-purple-700 px-1 py-0.5 rounded"></span>
+                    <!-- 报告主体 -->
+                    <div class="p-8 pb-32">
+                        <!-- 1. 雷达图 -->
+                        <div class="mb-8 flex flex-col items-center">
+                            <div class="w-full max-w-[400px] h-[300px]">
+                                <canvas id="radarChart"></canvas>
+                            </div>
+                            <div class="mt-4 bg-slate-50 px-6 py-3 rounded-full border border-slate-200">
+                                <span class="text-slate-500 font-bold uppercase mr-2 text-xs">Total Score</span>
+                                <span id="displayTotalScore" class="text-3xl font-black text-jhblue">85</span>
+                                <span class="text-slate-400 text-sm">/ 100</span>
+                            </div>
+                        </div>
+
+                        <!-- 2. 维度详情 -->
+                        <div class="mb-8">
+                            <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4">
+                                <span class="bg-jhblue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">2</span>
+                                维度评价详情
+                            </h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <!-- Cards injected here by JS -->
+                                <div class="detail-card bg-purple-50 border-purple-100">
+                                    <div class="card-header text-purple-700">有趣味 (Fun) <span id="tag-fun" class="tag-pill bg-purple-100"></span></div>
+                                    <p id="feedFunDisplay" class="text-sm text-slate-600 mt-2"></p>
                                 </div>
-                                <span id="feedFunDisplay" class="text-sm text-slate-600 leading-relaxed"></span>
-                            </div>
-                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 flex flex-col">
-                                <div class="flex justify-between items-center mb-2">
-                                    <strong class="text-blue-700 text-sm uppercase">有效率</strong>
-                                    <span id="tagsEffDisplay" class="text-[10px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded"></span>
+                                <div class="detail-card bg-blue-50 border-blue-100">
+                                    <div class="card-header text-blue-700">有效率 (Eff) <span id="tag-eff" class="tag-pill bg-blue-100"></span></div>
+                                    <p id="feedEffDisplay" class="text-sm text-slate-600 mt-2"></p>
                                 </div>
-                                <span id="feedEffDisplay" class="text-sm text-slate-600 leading-relaxed"></span>
-                            </div>
-                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 flex flex-col">
-                                <div class="flex justify-between items-center mb-2">
-                                    <strong class="text-green-700 text-sm uppercase">有用处</strong>
-                                    <span id="tagsUseDisplay" class="text-[10px] bg-green-100 text-green-700 px-1 py-0.5 rounded"></span>
+                                <div class="detail-card bg-green-50 border-green-100">
+                                    <div class="card-header text-green-700">有用处 (Use) <span id="tag-use" class="tag-pill bg-green-100"></span></div>
+                                    <p id="feedUseDisplay" class="text-sm text-slate-600 mt-2"></p>
                                 </div>
-                                <span id="feedUseDisplay" class="text-sm text-slate-600 leading-relaxed"></span>
-                            </div>
-                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 flex flex-col">
-                                <strong class="text-orange-700 block mb-2 text-sm uppercase">感知力</strong>
-                                <span id="feedAwarenessDisplayReport" class="text-sm text-slate-600 leading-relaxed"></span>
-                            </div>
-                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 flex flex-col md:col-span-2">
-                                <strong class="text-red-700 block mb-2 text-sm uppercase">结果验收</strong>
-                                <span id="feedResultDisplayReport" class="text-sm text-slate-600 leading-relaxed"></span>
+                                <div class="detail-card bg-orange-50 border-orange-100">
+                                    <div class="card-header text-orange-700">感知力 (Awareness)</div>
+                                    <p id="feedAwarenessDisplayReport" class="text-sm text-slate-600 mt-2"></p>
+                                </div>
+                                <div class="detail-card bg-red-50 border-red-100 md:col-span-2">
+                                    <div class="card-header text-red-700">结果验收 (Result)</div>
+                                    <p id="feedResultDisplayReport" class="text-sm text-slate-600 mt-2"></p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- 板块三：结论与建议 -->
-                    <div class="mb-6">
-                        <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4"><span class="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">3</span>建议与结论</h3>
-                         <div class="bg-blue-50 p-4 rounded-lg mb-4 border-l-4 border-blue-500">
-                             <div class="text-xs font-bold text-blue-500 mb-2">改进建议 (Suggestions)</div>
-                            <p id="displayOverallImprovementReport" class="text-slate-700 text-sm leading-relaxed"></p>
-                        </div>
-                        <div class="bg-slate-800 text-white p-5 rounded-lg relative overflow-hidden">
-                             <div class="text-xs font-bold text-slate-400 mb-2">最终结论 (Final Verdict)</div>
-                            <p id="displayFinalVerdictReport" class="relative z-10 text-base italic font-light leading-relaxed"></p>
+                        <!-- 3. 结论 -->
+                        <div>
+                            <h3 class="flex items-center text-slate-800 font-bold text-lg mb-4">
+                                <span class="bg-jhblue text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">3</span>
+                                改进与结论
+                            </h3>
+                            <div class="bg-white border-l-4 border-jhorange p-4 shadow-sm mb-4">
+                                <div class="text-xs font-bold text-jhorange uppercase mb-1">Suggestions</div>
+                                <p id="displayOverallImprovementReport" class="text-slate-700 text-sm whitespace-pre-line"></p>
+                            </div>
+                            <div class="bg-slate-800 text-white p-5 rounded-r-lg border-l-4 border-jhblue shadow-lg">
+                                <div class="text-xs font-bold text-slate-400 uppercase mb-1">Final Verdict</div>
+                                <p id="displayFinalVerdictReport" class="text-base font-light italic leading-relaxed"></p>
+                            </div>
                         </div>
                     </div>
-                    
-                    <!-- 底部操作按钮 -->
-                    <div class="mt-8 flex justify-center gap-4 no-print border-t border-slate-200 pt-6">
-                        <button onclick="closeReport()" class="px-5 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 shadow-sm font-medium transition">
-                            <i class="fas fa-times mr-2"></i>关闭
-                        </button>
-                        <button onclick="saveReportAsImage()" class="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-md font-medium transition">
-                            <i class="fas fa-image mr-2"></i>保存为图片
-                        </button>
-                    </div>
+                </div>
+
+                <!-- 浮动操作栏 -->
+                <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur flex justify-center gap-4 border-t z-50 no-print">
+                    <button onclick="closeReport()" class="btn-secondary"><i class="fas fa-times mr-2"></i>关闭</button>
+                    <button onclick="saveReportAsImage()" class="btn-primary"><i class="fas fa-image mr-2"></i>保存图片 (高清)</button>
                 </div>
             </div>
-        </div>
 
-    </main>
+        </main>
+    </div>
+
+    <!-- CSS Helpers -->
+    <style>
+        .input-field { width: 100%; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 0.5rem; font-size: 0.875rem; transition: all 0.2s; }
+        .input-field:focus { border-color: #009FE8; outline: none; box-shadow: 0 0 0 3px rgba(0, 159, 232, 0.1); }
+        .label-text { display: block; font-size: 0.875rem; font-weight: 600; color: #475569; margin-bottom: 0.25rem; }
+        .score-card { background: white; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; }
+        .score-input { width: 4rem; text-align: center; border: 2px solid #e9d5ff; border-radius: 0.5rem; padding: 0.25rem; font-weight: bold; color: #7e22ce; outline: none; }
+        .score-select { border: 2px solid #fdba74; border-radius: 0.5rem; padding: 0.25rem; font-weight: bold; outline: none; font-size: 0.875rem; }
+        .check-item { display: inline-block; padding: 0.25rem 0.5rem; border: 1px solid #e2e8f0; border-radius: 0.25rem; background: #f8fafc; color: #64748b; }
+        .textarea-field { width: 100%; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 0.5rem; font-size: 0.875rem; height: 4rem; outline: none; focus:border-jhblue; }
+        .textarea-field:focus { border-color: #009FE8; }
+        .btn-primary { background: #009FE8; color: white; padding: 0.5rem 1.5rem; border-radius: 0.5rem; font-weight: bold; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(0, 159, 232, 0.3); }
+        .btn-primary:hover { background: #0284c7; transform: translateY(-1px); }
+        .btn-secondary { background: white; color: #475569; border: 1px solid #cbd5e1; padding: 0.5rem 1.5rem; border-radius: 0.5rem; font-weight: bold; transition: all 0.2s; }
+        .btn-secondary:hover { background: #f1f5f9; }
+        
+        .detail-card { padding: 1rem; border-radius: 0.5rem; border-width: 1px; }
+        .card-header { font-weight: bold; display: flex; justify-content: space-between; align-items: center; font-size: 0.875rem; }
+        .tag-pill { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; opacity: 0.8; }
+    </style>
 
     <script>
-        // 设置日期
+        // 设置默认日期
         try { document.getElementById('date').valueAsDate = new Date(); } catch(e) {}
         let myChart = null;
 
-        // 全局渲染表格
-        window.renderTableGlobal = (evaluations) => {
-             const tbody = document.getElementById('data-table-body');
-            if(!tbody) return;
-            tbody.innerHTML = '';
-            
-            if (evaluations.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400">暂无数据，快去添加第一条听课记录吧！</td></tr>`;
-                return;
-            }
-
-            evaluations.forEach(item => {
-                const tr = document.createElement('tr');
-                tr.className = "border-b hover:bg-slate-50 transition";
-                
-                let badgeColor = "bg-gray-100 text-gray-800";
-                if(item.level && item.level.includes("A")) badgeColor = "bg-green-100 text-green-800";
-                else if(item.level && item.level.includes("B")) badgeColor = "bg-blue-100 text-blue-800";
-                else if(item.level && item.level.includes("C")) badgeColor = "bg-red-100 text-red-800";
-
-                tr.innerHTML = `
-                    <td class="p-3">
-                        <div class="font-medium text-slate-700">${item.date}</div>
-                        <div class="text-xs text-slate-400">${item.courseType || '常规课'}</div>
-                    </td>
-                    <td class="p-3 text-slate-600 text-sm">${item.supervisorName || '-'}</td>
-                    <td class="p-3 font-medium">${item.teacherName}</td>
-                    <td class="p-3 text-slate-500 text-sm">${item.topic}</td>
-                    <td class="p-3 font-bold text-slate-700">${item.totalScore}</td>
-                    <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badgeColor}">${(item.level || '').split(' ')[0]}</span></td>
-                    <td class="p-3">
-                        <button onclick="window.viewHistoryRecord('${item.id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">查看报告</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        };
-
-        window.updateDashboardGlobal = (evaluations) => {
-             const statTotal = document.getElementById('stat-total');
-             if (statTotal) statTotal.innerText = evaluations.length;
-            
-            if (evaluations.length > 0) {
-                const totalScore = evaluations.reduce((sum, item) => sum + (item.totalScore || 0), 0);
-                const avg = (totalScore / evaluations.length).toFixed(1);
-                const statAvg = document.getElementById('stat-avg');
-                if (statAvg) statAvg.innerText = avg;
-                
-                const now = Date.now();
-                const monthCount = evaluations.filter(e => (now - e.timestamp) < 30 * 24 * 60 * 60 * 1000).length;
-                const statMonth = document.getElementById('stat-month');
-                if (statMonth) statMonth.innerText = monthCount;
-
-                const activityList = document.getElementById('recent-activity');
-                if(activityList) {
-                    activityList.innerHTML = '';
-                    evaluations.slice(0, 3).forEach(item => {
-                        const div = document.createElement('div');
-                        div.className = "flex justify-between items-center p-3 bg-slate-50 rounded mb-2";
-                        div.innerHTML = `
-                            <div>
-                                <div class="font-bold text-sm text-slate-700">${item.teacherName}</div>
-                                <div class="text-xs text-slate-500">${item.date} · ${item.topic}</div>
-                            </div>
-                            <div class="font-bold text-blue-600">${item.totalScore}分</div>
-                        `;
-                        activityList.appendChild(div);
-                    });
-                }
-
-            } else {
-                const statAvg = document.getElementById('stat-avg');
-                if (statAvg) statAvg.innerText = "-";
-                const statMonth = document.getElementById('stat-month');
-                if (statMonth) statMonth.innerText = "0";
-            }
-        };
-
-        // 辅助：获取选中标签
-        function getSelectedTags(containerId) {
-            const container = document.getElementById(containerId);
-            if(!container) return [];
-            const checkedItems = container.querySelectorAll('.check-item.checked');
-            return Array.from(checkedItems).map(item => item.innerText.trim());
-        }
-
-        // 辅助：Toast 提示
-        function showToast(message) {
-            const toast = document.getElementById('toast-container');
-            const msg = document.getElementById('toast-message');
-            if(toast && msg) {
-                msg.innerText = message;
-                toast.classList.add('show');
-                setTimeout(() => toast.classList.remove('show'), 3000);
-            }
-        }
-
+        // UI 辅助
         function toggleCheck(el) { el.classList.toggle('checked'); }
+        function showToast(msg) {
+            const t = document.getElementById('toast-container');
+            document.getElementById('toast-message').innerText = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+        function getSelectedTags(id) {
+            const container = document.getElementById(id);
+            return container ? Array.from(container.querySelectorAll('.check-item.checked')).map(e => e.innerText) : [];
+        }
 
         // 页面切换
-        function switchPage(pageId) {
-            const pages = ['home-view', 'tool-view', 'data-view'];
-            pages.forEach(id => {
-                const el = document.getElementById(id);
-                if(el) el.classList.add('hidden');
-            });
+        window.switchPage = (pageId) => {
+            if (pageId === 'admin' && appUser.role !== 'admin') {
+                alert("无权限访问");
+                return;
+            }
+            ['home-view', 'tool-view', 'data-view', 'admin-view'].forEach(id => document.getElementById(id).classList.add('hidden'));
             document.getElementById('report-view').classList.add('hidden');
-
-            const target = document.getElementById(pageId + '-view');
-            if(target) target.classList.remove('hidden');
+            
+            document.getElementById(pageId + '-view').classList.remove('hidden');
             
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             const navBtn = document.getElementById('nav-' + pageId);
             if(navBtn) navBtn.classList.add('active');
 
-            if(pageId === 'data') window.loadEvaluations();
+            if (pageId === 'admin') window.loadAllUsers();
         }
 
-        // 表单数据收集
-        function getFormData() {
-            const s1 = parseInt(document.getElementById('scoreFun').value) || 0;
-            const s2 = parseInt(document.getElementById('scoreEff').value) || 0;
-            const s3 = parseInt(document.getElementById('scoreUse').value) || 0;
-            const s4 = parseInt(document.getElementById('scoreAwareness').value) || 0;
-            const s5 = parseInt(document.getElementById('scoreResult').value) || 0;
-            const total = s1 + s2 + s3 + s4 + s5;
-
+        // 数据收集
+        window.handleGenerateAndSave = () => {
+            const getVal = (id) => parseInt(document.getElementById(id).value) || 0;
+            const getText = (id) => document.getElementById(id).value;
+            
+            const scores = [getVal('scoreFun'), getVal('scoreEff'), getVal('scoreUse'), getVal('scoreAwareness'), getVal('scoreResult')];
+            const total = scores.reduce((a,b) => a+b, 0);
+            
             let level = "C 需改进";
-            if(total >= 90) level = "A+ 卓越";
-            else if(total >= 85) level = "A 高效";
-            else if(total >= 75) level = "B 合格";
+            if (total >= 90) level = "A+ 卓越";
+            else if (total >= 85) level = "A 高效";
+            else if (total >= 75) level = "B 合格";
 
-            return {
-                supervisorName: document.getElementById('supervisorName').value || "未填写",
-                teacherName: document.getElementById('teacherName').value || "未填写",
-                className: document.getElementById('className').value || "",
-                courseType: document.getElementById('courseType').value || "常规课",
-                topic: document.getElementById('topic').value || "未填写",
-                date: document.getElementById('date').value,
-                scores: [s1, s2, s3, s4, s5],
+            const data = {
+                supervisorName: getText('supervisorName'),
+                teacherName: getText('teacherName'),
+                courseType: document.getElementById('courseType').value,
+                topic: getText('topic'),
+                date: getText('date'),
+                scores: scores,
                 totalScore: total,
                 level: level,
                 tags: {
@@ -751,52 +883,49 @@
                     use: getSelectedTags('tags-use')
                 },
                 feedbacks: {
-                    fun: document.getElementById('textFun').value,
-                    eff: document.getElementById('textEff').value,
-                    use: document.getElementById('textUse').value,
-                    awareness: document.getElementById('textAwareness').value,
-                    result: document.getElementById('textResult').value,
-                    overall: document.getElementById('textOverallImprovement').value,
-                    verdict: document.getElementById('textFinalVerdict').value
+                    fun: getText('textFun'),
+                    eff: getText('textEff'),
+                    use: getText('textUse'),
+                    awareness: getText('textAwareness'),
+                    result: getText('textResult'),
+                    overall: getText('textOverallImprovement'),
+                    verdict: getText('textFinalVerdict')
                 }
             };
-        }
 
-        function handleGenerateAndSave() {
-            const data = getFormData();
             window.saveEvaluationToDB(data);
-            renderReport(data);
+            window.renderReport(data);
         }
 
-        window.renderReportFromData = (data) => { renderReport(data); }
-
-        function renderReport(data) {
-            document.getElementById('displaySupervisor').innerText = data.supervisorName || "督导老师";
+        // 渲染报告
+        window.renderReport = (data) => {
+            document.getElementById('displaySupervisor').innerText = data.supervisorName;
             document.getElementById('displayTeacher').innerText = data.teacherName;
+            document.getElementById('displayCourseType').innerText = data.courseType;
             document.getElementById('displayTopic').innerText = data.topic;
             document.getElementById('displayDate').innerText = data.date;
-            document.getElementById('displayCourseType').innerText = data.courseType || "常规课";
             document.getElementById('displayTotalScore').innerText = data.totalScore;
-            document.getElementById('displayLevel').innerText = (data.level || '').split(' ')[0];
+            document.getElementById('displayLevel').innerText = data.level.split(' ')[0];
 
-            document.getElementById('feedFunDisplay').innerText = data.feedbacks.fun || "无";
-            document.getElementById('feedEffDisplay').innerText = data.feedbacks.eff || "无";
-            document.getElementById('feedUseDisplay').innerText = data.feedbacks.use || "无";
-            document.getElementById('feedAwarenessDisplayReport').innerText = data.feedbacks.awareness || "无";
-            document.getElementById('feedResultDisplayReport').innerText = data.feedbacks.result || "无";
-            
-            document.getElementById('displayOverallImprovementReport').innerText = data.feedbacks.overall || "无建议";
-            document.getElementById('displayFinalVerdictReport').innerText = data.feedbacks.verdict || "无结论";
+            // 填充分数和文本
+            const mapFeed = (id, text) => document.getElementById(id).innerText = text || "暂无评价";
+            mapFeed('feedFunDisplay', data.feedbacks.fun);
+            mapFeed('feedEffDisplay', data.feedbacks.eff);
+            mapFeed('feedUseDisplay', data.feedbacks.use);
+            mapFeed('feedAwarenessDisplayReport', data.feedbacks.awareness);
+            mapFeed('feedResultDisplayReport', data.feedbacks.result);
+            mapFeed('displayOverallImprovementReport', data.feedbacks.overall);
+            mapFeed('displayFinalVerdictReport', data.feedbacks.verdict);
 
-            const tags = data.tags || {};
-            document.getElementById('tagsFunDisplay').innerText = (tags.fun || []).join(' / ');
-            document.getElementById('tagsEffDisplay').innerText = (tags.eff || []).join(' / ');
-            document.getElementById('tagsUseDisplay').innerText = (tags.use || []).join(' / ');
+            // 填充标签
+            const mapTags = (id, tags) => document.getElementById(id).innerText = (tags || []).join(' / ');
+            mapTags('tag-fun', data.tags.fun);
+            mapTags('tag-eff', data.tags.eff);
+            mapTags('tag-use', data.tags.use);
 
-            const pages = ['home-view', 'tool-view', 'data-view'];
-            pages.forEach(id => document.getElementById(id).classList.add('hidden'));
             document.getElementById('report-view').classList.remove('hidden');
-            
+
+            // 渲染图表
             setTimeout(() => {
                 const ctx = document.getElementById('radarChart').getContext('2d');
                 if (myChart) myChart.destroy();
@@ -808,9 +937,12 @@
                             label: '得分',
                             data: data.scores,
                             fill: true,
-                            backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                            borderColor: 'rgb(59, 130, 246)',
-                            pointBackgroundColor: 'rgb(59, 130, 246)'
+                            backgroundColor: 'rgba(0, 159, 232, 0.2)', // jhblue with opacity
+                            borderColor: '#009FE8',
+                            pointBackgroundColor: '#FF6B6B', // jhorange points
+                            pointBorderColor: '#fff',
+                            pointHoverBackgroundColor: '#fff',
+                            pointHoverBorderColor: '#FF6B6B'
                         }]
                     },
                     options: {
@@ -822,147 +954,156 @@
             }, 100);
         }
 
-        function closeReport() {
+        window.closeReport = () => {
             document.getElementById('report-view').classList.add('hidden');
-            switchPage('tool');
+            window.switchPage('tool');
         }
 
-        function exportToCSV() {
-            if(!window.cachedEvaluations || window.cachedEvaluations.length === 0) {
-                alert("暂无数据可导出");
-                return;
-            }
-            let csvContent = "\ufeff"; 
-            csvContent += "日期,课程类型,督导姓名,教师姓名,课题,有趣(分),有效(分),有用(分),感知(分),结果(分),总分,评级,标签-有趣,标签-有效,标签-有用,反馈-有趣,反馈-有效,反馈-有用,反馈-感知,反馈-结果,总体建议,最终结论\n";
+        // 渲染表格 (全局)
+        window.renderTableGlobal = (evaluations) => {
+            const tbody = document.getElementById('data-table-body');
+            tbody.innerHTML = evaluations.length ? '' : '<tr><td colspan="7" class="p-8 text-center text-slate-400">暂无数据</td></tr>';
+            
+            evaluations.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b hover:bg-slate-50 transition";
+                let badgeClass = "bg-gray-100 text-gray-700";
+                if (item.level.includes("A")) badgeClass = "bg-green-100 text-green-700";
+                else if (item.level.includes("B")) badgeClass = "bg-blue-100 text-blue-700";
+                else if (item.level.includes("C")) badgeClass = "bg-red-100 text-red-700";
 
-            window.cachedEvaluations.forEach(e => {
-                const scores = e.scores || [0,0,0,0,0];
-                const fb = e.feedbacks || {};
-                const tags = e.tags || {};
-                const esc = (text) => `"${(text || '').toString().replace(/"/g, '""')}"`;
-
-                const row = [
-                    esc(e.date),
-                    esc(e.courseType || "常规课"),
-                    esc(e.supervisorName),
-                    esc(e.teacherName),
-                    esc(e.topic),
-                    scores[0], scores[1], scores[2], scores[3], scores[4],
-                    e.totalScore,
-                    esc(e.level),
-                    esc((tags.fun || []).join(';')),
-                    esc((tags.eff || []).join(';')),
-                    esc((tags.use || []).join(';')),
-                    esc(fb.fun),
-                    esc(fb.eff),
-                    esc(fb.use),
-                    esc(fb.awareness),
-                    esc(fb.result),
-                    esc(fb.overall),
-                    esc(fb.verdict)
-                ].join(",");
-                csvContent += row + "\n";
+                tr.innerHTML = `
+                    <td class="p-4">
+                        <div class="font-bold text-slate-700">${item.date}</div>
+                        <div class="text-xs text-slate-400 mt-1">${item.courseType || '常规课'}</div>
+                    </td>
+                    <td class="p-4 text-slate-600 text-sm">${item.supervisorName || '-'}</td>
+                    <td class="p-4 font-medium">${item.teacherName}</td>
+                    <td class="p-4 text-slate-500 text-sm max-w-xs truncate">${item.topic}</td>
+                    <td class="p-4 font-bold text-jhblue">${item.totalScore}</td>
+                    <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${badgeClass}">${item.level.split(' ')[0]}</span></td>
+                    <td class="p-4">
+                        <button onclick="window.viewRecordGlobal('${item.id}')" class="text-jhblue hover:underline text-sm font-medium">查看</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
             });
-
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            const url = URL.createObjectURL(blob);
-            link.setAttribute("href", url);
-            link.setAttribute("download", `教学督导记录_Full_${new Date().toISOString().slice(0,10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
         }
 
-        // ================= 终极截图方案 =================
-        async function saveReportAsImage() {
-            const originalReport = document.getElementById('report-container');
+        // 全局 Dashboard 更新
+        window.updateDashboardGlobal = (evaluations) => {
+            document.getElementById('stat-total').innerText = evaluations.length;
+            
+            // 计算本月
+            const now = new Date();
+            const thisMonth = evaluations.filter(e => {
+                const d = new Date(e.timestamp);
+                return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+            }).length;
+            document.getElementById('stat-month').innerText = thisMonth;
+
+            // 计算均分
+            if (evaluations.length > 0) {
+                const total = evaluations.reduce((sum, e) => sum + (e.totalScore || 0), 0);
+                document.getElementById('stat-avg').innerText = (total / evaluations.length).toFixed(1);
+            }
+
+            // 最近动态
+            const activityList = document.getElementById('recent-activity');
+            activityList.innerHTML = '';
+            if(evaluations.length === 0) activityList.innerHTML = '<p class="text-sm text-slate-400 py-4 text-center">暂无动态</p>';
+            
+            evaluations.slice(0, 3).forEach(item => {
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition cursor-pointer";
+                div.onclick = () => window.viewRecordGlobal(item.id);
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-2 rounded-full bg-jhblue"></div>
+                        <div>
+                            <div class="font-bold text-sm text-slate-700">${item.teacherName} <span class="font-normal text-xs text-slate-400">(${item.courseType})</span></div>
+                            <div class="text-xs text-slate-500">${item.date} · ${item.supervisorName}</div>
+                        </div>
+                    </div>
+                    <div class="font-bold text-jhblue">${item.totalScore}分</div>
+                `;
+                activityList.appendChild(div);
+            });
+        }
+
+        window.viewRecordGlobal = (id) => {
+            const record = window.cachedEvaluations.find(e => e.id === id);
+            if(record) window.renderReport(record);
+        }
+
+        // 导出 CSV
+        window.exportToCSV = () => {
+            if (!window.cachedEvaluations || !window.cachedEvaluations.length) return alert("无数据");
+            let csv = "\ufeff日期,课程类型,督导,教师,课题,总分,评级,建议\n";
+            window.cachedEvaluations.forEach(e => {
+                const safe = (t) => `"${(t||'').toString().replace(/"/g,'""')}"`;
+                csv += `${safe(e.date)},${safe(e.courseType)},${safe(e.supervisorName)},${safe(e.teacherName)},${safe(e.topic)},${e.totalScore},${safe(e.level)},${safe(e.feedbacks.overall)}\n`;
+            });
+            const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `家辉培优_督导记录_${new Date().toLocaleDateString()}.csv`;
+            link.click();
+        }
+
+        // 终极截图修复版 (Clone + Scale)
+        window.saveReportAsImage = async () => {
+            const original = document.getElementById('report-container');
             const overlay = document.getElementById('loading-overlay');
             overlay.style.display = 'flex';
-
-            // 稍微延迟以等待 Loading 渲染
-            await new Promise(r => setTimeout(r, 100));
-
+            
             try {
-                // 1. 克隆节点
-                const clone = originalReport.cloneNode(true);
+                // 1. Clone DOM
+                const clone = original.cloneNode(true);
                 
-                // 2. 深度处理 Canvas (Chart.js)
-                const originalCanvas = originalReport.querySelector('canvas');
+                // 2. Fix Canvas
+                const origCanvas = original.querySelector('canvas');
                 const cloneCanvas = clone.querySelector('canvas');
-                if (originalCanvas && cloneCanvas) {
+                if (origCanvas && cloneCanvas) {
                     const img = document.createElement('img');
-                    img.src = originalCanvas.toDataURL();
-                    img.style.cssText = "width: 100%; height: 100%; object-fit: contain;";
+                    img.src = origCanvas.toDataURL();
+                    img.style.width = '100%';
                     cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
                 }
 
-                // 3. 配置克隆节点样式 (在视口外渲染)
-                // 关键修复：使用 fixed 定位并设置背景色，防止透明
-                clone.style.cssText = `
-                    position: fixed; 
-                    top: 0; 
-                    left: 0; 
-                    width: 800px; 
-                    height: auto; 
-                    z-index: -9999; 
-                    background-color: #ffffff;
-                    overflow: visible;
-                    margin: 0;
-                    border-radius: 0;
-                `;
+                // 3. Style Clone (Off-screen render)
+                clone.style.position = 'fixed';
+                clone.style.top = '0';
+                clone.style.left = '-9999px';
+                clone.style.width = '800px'; // Fixed A4-like width
+                clone.style.height = 'auto';
+                clone.style.zIndex = '-1';
+                clone.style.background = 'white';
+                clone.style.borderRadius = '0';
                 
-                // 4. 移除不需要的元素
-                const btns = clone.querySelector('.no-print');
-                if(btns) btns.remove();
-
-                // 5. 挂载到 DOM (必须挂载才能渲染)
                 document.body.appendChild(clone);
 
-                // 6. 执行截图
+                // 4. Capture
                 const canvas = await html2canvas(clone, {
-                    scale: 2, // 高清
-                    useCORS: true, // 允许跨域图片
-                    allowTaint: true,
-                    backgroundColor: '#ffffff', // 强制白底
-                    windowWidth: 800, // 模拟窗口宽度
-                    scrollY: 0, 
-                    scrollX: 0
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    windowWidth: 800
                 });
 
-                // 7. 下载
+                // 5. Save
                 const link = document.createElement('a');
-                link.download = `听课反馈_${document.getElementById('displayTeacher').innerText}_${document.getElementById('displayDate').innerText}.png`;
-                link.href = canvas.toDataURL('image/png');
+                link.download = `督导反馈_${document.getElementById('displayTeacher').innerText}.png`;
+                link.href = canvas.toDataURL();
                 link.click();
 
-                // 8. 清理
                 document.body.removeChild(clone);
-                
-            } catch (err) {
-                console.error("截图失败:", err);
-                alert("生成图片失败，请检查浏览器兼容性。建议使用 Chrome/Edge 浏览器。");
+            } catch (e) {
+                console.error(e);
+                alert("生成图片失败，请截图保存");
             } finally {
                 overlay.style.display = 'none';
             }
-        }
-
-        function fillDemoData() {
-            document.getElementById('supervisorName').value = "李督导";
-            document.getElementById('teacherName').value = "张老师";
-            document.getElementById('topic').value = "寒假数学 - 三角形全等";
-            document.getElementById('scoreFun').value = 18;
-            document.getElementById('scoreEff').value = 16;
-            document.getElementById('scoreUse').value = 19;
-            document.getElementById('scoreAwareness').value = 16;
-            document.getElementById('scoreResult').value = 20;
-            document.getElementById('textFun').value = "导入案例非常生动，吸引了学生注意力。";
-            document.getElementById('textEff').value = "讲练结合紧凑，但板书稍微有点乱。";
-            document.getElementById('textOverallImprovement').value = "1. 板书需要更条理\n2. 关注后排学生状态";
-            document.getElementById('textFinalVerdict').value = "是一堂高效的课，目标达成率高。";
-            
-            const tagContainer = document.getElementById('tags-fun');
-            if(tagContainer) tagContainer.children[0].classList.add('checked');
         }
     </script>
 </body>
