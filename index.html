@@ -9,11 +9,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <!-- 拼音库 (使用更稳定的 CDN) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tiny-pinyin/1.3.2/tiny-pinyin.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
-    <!-- Tailwind 自定义配置 -->
+    <!-- Tailwind 配置 -->
     <script>
         tailwind.config = {
             theme: {
@@ -21,7 +20,7 @@
                     colors: {
                         jhblue: '#009FE8', // 家辉蓝
                         jhorange: '#FF6B6B', // 活力橙
-                        jhbg: '#F8FAFC',   // 极简背景灰
+                        jhbg: '#F8FAFC',
                     },
                     boxShadow: {
                         'soft': '0 2px 10px rgba(0, 0, 0, 0.03)',
@@ -37,57 +36,42 @@
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
         body { font-family: 'Noto Sans SC', sans-serif; background-color: #F8FAFC; color: #334155; }
         
-        /* 菜单选中态 - 极简高亮 */
         .nav-item { border-left: 4px solid transparent; transition: all 0.2s; color: #64748B; margin-bottom: 4px; }
         .nav-item:hover { background-color: #F1F5F9; color: #009FE8; }
         .nav-item.active { background-color: #F0F9FF; color: #009FE8; border-left-color: #009FE8; font-weight: 600; }
         
-        /* 极简风输入框 */
         .input-minimal {
-            width: 100%;
-            background-color: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 6px;
-            padding: 10px 14px;
-            font-size: 14px;
-            transition: all 0.2s ease;
-            color: #334155;
+            width: 100%; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 14px; font-size: 14px; transition: all 0.2s ease; color: #334155;
         }
-        .input-minimal:focus {
-            border-color: #009FE8;
-            box-shadow: 0 0 0 2px rgba(0, 159, 232, 0.05);
-            outline: none;
-        }
+        .input-minimal:focus { border-color: #009FE8; box-shadow: 0 0 0 2px rgba(0, 159, 232, 0.05); outline: none; }
         .input-minimal.error { border-color: #FF6B6B; background-color: #FFF5F5; }
         .input-minimal:read-only { background-color: #F8FAFC; color: #94A3B8; cursor: default; }
         
         .label-minimal { display: block; font-size: 13px; font-weight: 500; color: #64748B; margin-bottom: 6px; }
         
-        /* 标签 */
-        .check-item { 
-            display: inline-block; padding: 6px 12px; border-radius: 4px; 
-            background: #FFFFFF; color: #64748B; font-size: 12px; cursor: pointer; border: 1px solid #E2E8F0; transition: all 0.2s; 
-        }
+        .check-item { display: inline-block; padding: 6px 12px; border-radius: 4px; background: #FFFFFF; color: #64748B; font-size: 12px; cursor: pointer; border: 1px solid #E2E8F0; transition: all 0.2s; }
         .check-item:hover { border-color: #009FE8; color: #009FE8; }
         .check-item.checked { background: #009FE8; color: white; border-color: #009FE8; }
         
-        /* 按钮 */
         .btn-jh { background-color: #009FE8; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-weight: 500; transition: all 0.2s; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
         .btn-jh:hover { background-color: #0284c7; }
-        .btn-jh:active { transform: translateY(1px); }
         
         .btn-outline { background: white; border: 1px solid #E2E8F0; color: #64748B; border-radius: 6px; padding: 10px 24px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
         .btn-outline:hover { border-color: #009FE8; color: #009FE8; background: #F8FAFC; }
 
-        /* 加载状态 */
         #system-loading { position: fixed; inset: 0; z-index: 99999; background: #fff; display: flex; align-items: center; justify-content: center; flex-direction: column; }
         #toast-container { position: fixed; top: 24px; right: 24px; z-index: 9999; transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         #toast-container.show { transform: translateX(0); }
         #loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 100; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(2px); }
 
-        /* 打印样式优化 (用于导出PDF) */
+        /* Logo 样式 */
+        .app-logo { max-height: 50px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
+        .sidebar-logo { max-height: 40px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
+        .report-logo { max-height: 60px; width: auto; display: block; object-fit: contain; margin-bottom: 1rem; }
+
+        /* 打印样式优化 */
         @media print {
-            @page { size: A4; margin: 10mm; }
+            @page { size: A4; margin: 0; }
             body { background: white; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             #sidebar, #mobile-header, .no-print, #admin-view, #tool-view, #data-view, #home-view, #login-modal, #pwd-modal, #loading-overlay, #system-loading, #toast-container { display: none !important; }
             #app-container { display: block !important; height: auto !important; overflow: visible !important; }
@@ -97,18 +81,13 @@
                 background: white !important; overflow: visible !important; padding: 0 !important; 
             }
             #report-container { 
-                box-shadow: none !important; margin: 0 !important; max-width: 100% !important; border-radius: 0 !important;
-                border: none !important;
+                box-shadow: none !important; margin: 0 auto !important; width: 100% !important; max-width: 210mm !important; border: none !important;
             }
             .detail-card { break-inside: avoid; border: 1px solid #eee !important; page-break-inside: avoid; }
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         
         .report-clone-container { background-color: white !important; }
-        
-        /* 摇晃动画 (用于报错) */
-        .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
-        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
     </style>
 
     <!-- 卫兵脚本 -->
@@ -116,21 +95,17 @@
         window.appLoaded = false;
         setTimeout(function() {
             if (!window.appLoaded) {
-                const loader = document.getElementById('system-loading');
-                if(loader) loader.style.display = 'none';
+                document.getElementById('system-loading').style.display = 'none';
                 const savedUser = localStorage.getItem('jh_current_user');
-                if (savedUser) {
-                    try { window.forceLocalLogin(JSON.parse(savedUser)); } catch(e) { document.getElementById('login-modal')?.classList.remove('hidden'); }
-                } else {
-                    document.getElementById('login-modal')?.classList.remove('hidden');
-                }
+                if (savedUser) { try { window.forceLocalLogin(JSON.parse(savedUser)); } catch(e) { document.getElementById('login-modal')?.classList.remove('hidden'); } }
+                else document.getElementById('login-modal')?.classList.remove('hidden');
             }
         }, 3000);
     </script>
 </head>
 <body class="flex h-screen overflow-hidden text-slate-700 bg-slate-50">
 
-    <!-- Logo SVG 定义 -->
+    <!-- 备份 Logo SVG (当图片加载失败时显示) -->
     <svg style="display: none;">
         <symbol id="logo-jh" viewBox="0 0 240 60">
             <path d="M45 30C45 38.2843 38.2843 45 30 45C21.7157 45 15 38.2843 15 30C15 21.7157 21.7157 15 30 15C38.2843 15 45 21.7157 45 30Z" stroke="#009FE8" stroke-width="6" fill="none"/>
@@ -158,11 +133,15 @@
         </div>
     </div>
 
-    <!-- 1. 登录界面 (极简风) -->
-    <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-slate-50">
+    <!-- 1. 登录界面 -->
+    <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-gradient-to-br from-blue-50 to-slate-100">
         <div class="bg-white rounded-xl shadow-soft p-10 w-full max-w-sm mx-4 border border-slate-100">
             <div class="text-center mb-10">
-                <svg class="w-48 h-16 mx-auto mb-4"><use href="#logo-jh"/></svg>
+                <!-- 登录 Logo -->
+                <div class="h-16 mx-auto mb-4 flex items-center justify-center">
+                    <img id="login-logo-img" class="app-logo" alt="家辉培优" onerror="this.style.display='none'; document.getElementById('login-logo-svg').style.display='block'">
+                    <svg id="login-logo-svg" class="h-16 w-auto" style="display:none"><use href="#logo-jh"/></svg>
+                </div>
                 <h2 class="text-xl font-bold text-slate-800 tracking-tight mt-6">督导管理系统</h2>
             </div>
             <form onsubmit="event.preventDefault(); window.handleLogin(this.username.value, this.password.value);" class="space-y-5">
@@ -170,7 +149,7 @@
                 <div><input type="password" name="password" required class="input-minimal bg-slate-50 border-slate-200 focus:bg-white" placeholder="密码"></div>
                 <button type="submit" id="login-btn" class="w-full btn-jh py-3 flex justify-center items-center gap-2 text-base"><span>登录</span> <i class="fas fa-arrow-right text-xs"></i></button>
             </form>
-            <p class="text-xs text-center text-slate-300 mt-8">Internal System v3.0</p>
+            <p class="text-xs text-center text-slate-300 mt-8">Internal System v3.3</p>
         </div>
     </div>
 
@@ -193,7 +172,11 @@
     <div id="app-container" class="flex w-full h-full hidden">
         <!-- 侧边栏 -->
         <aside id="sidebar" class="w-64 bg-white border-r border-slate-100 flex flex-col no-print z-20">
-            <div class="p-8 pb-4 flex items-center justify-center"><svg class="w-40 h-12"><use href="#logo-jh"/></svg></div>
+            <div class="p-8 pb-4 flex items-center justify-center">
+                <!-- 侧边栏 Logo -->
+                <img id="sidebar-logo-img" class="sidebar-logo" alt="家辉培优" onerror="this.style.display='none'; document.getElementById('sidebar-logo-svg').style.display='block'">
+                <svg id="sidebar-logo-svg" class="h-10 w-auto" style="display:none"><use href="#logo-jh"/></svg>
+            </div>
             <nav class="flex-1 px-4 space-y-1 mt-6">
                 <a href="javascript:void(0)" onclick="switchPage('home')" id="nav-home" class="nav-item flex items-center p-3 rounded-lg text-sm"><i class="fas fa-chart-pie w-6 text-center opacity-70"></i> <span class="ml-2">仪表盘</span></a>
                 <a href="javascript:void(0)" onclick="startNewEvaluation()" id="nav-tool" class="nav-item flex items-center p-3 rounded-lg text-sm"><i class="fas fa-pen-nib w-6 text-center opacity-70"></i> <span class="ml-2">新建听课</span></a>
@@ -201,6 +184,7 @@
                 <a href="javascript:void(0)" onclick="switchPage('admin')" id="nav-admin" class="nav-item flex items-center p-3 rounded-lg text-sm hidden"><i class="fas fa-users-cog w-6 text-center opacity-70"></i> <span class="ml-2">人员管理</span></a>
             </nav>
             <div class="p-4 border-t border-slate-50">
+                <div id="status-indicator" class="text-xs text-center mb-3 text-slate-400"><i class="fas fa-circle-notch fa-spin"></i> 初始化...</div>
                 <div class="flex items-center justify-between px-2">
                     <div class="flex items-center gap-3">
                         <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs"><i class="fas fa-user"></i></div>
@@ -321,11 +305,21 @@
 
             <!-- 报告预览 Modal (优化版) -->
             <div id="report-view" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/90 backdrop-blur-sm flex flex-col items-center">
+                <!-- A4 报告容器 -->
                 <div id="report-container" class="relative w-[210mm] min-h-[297mm] bg-white shadow-2xl mx-auto my-8 print:my-0 print:w-full print:shadow-none overflow-hidden">
+                    <!-- Header -->
                     <div class="bg-slate-900 text-white p-12 print:bg-white print:text-black print:border-b-2 print:border-black">
                         <div class="flex justify-between items-start">
-                            <div><div class="text-xs font-bold uppercase tracking-[0.2em] text-jhblue mb-2">Teaching Supervision Report</div><h1 class="text-4xl font-bold text-white print:text-black">家辉培优 · 督导反馈</h1></div>
-                            <div class="text-right"><div id="displayLevel" class="text-6xl font-black text-white print:text-black">A</div><div class="text-xs uppercase mt-1 opacity-60 print:text-black">Rating</div></div>
+                            <div>
+                                <div class="text-xs font-bold uppercase tracking-[0.2em] text-jhblue mb-2">Teaching Supervision Report</div>
+                                <h1 class="text-4xl font-bold text-white print:text-black">家辉培优 · 督导反馈</h1>
+                            </div>
+                            <div class="text-right">
+                                <!-- 报告单 Logo -->
+                                <img id="report-logo-img" class="report-logo bg-white/10 rounded p-1 mb-2 ml-auto" alt="Logo" onerror="this.style.display='none'">
+                                <div id="displayLevel" class="text-6xl font-black text-white print:text-black">A</div>
+                                <div class="text-xs uppercase mt-1 opacity-60 print:text-black">Rating</div>
+                            </div>
                         </div>
                         <div class="mt-8 grid grid-cols-2 gap-4 text-sm opacity-80 print:text-black print:opacity-100">
                             <div><i class="fas fa-user-tie w-5"></i> 督导：<span id="displaySupervisor" class="font-bold"></span></div>
@@ -335,6 +329,7 @@
                             <div class="col-span-2"><i class="fas fa-book w-5"></i> 课题：<span id="displayTopic"></span></div>
                         </div>
                     </div>
+                    <!-- Body -->
                     <div class="p-12">
                         <div class="flex justify-center mb-10 print:mb-6">
                             <div class="w-[400px] h-[300px] relative"><canvas id="radarChart"></canvas><div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center mt-4"><div class="text-3xl font-black text-slate-800" id="displayTotalScore">0</div><div class="text-xs text-slate-400 font-bold">TOTAL</div></div></div>
@@ -365,6 +360,13 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // ================= CONFIG =================
+        // 请在此处替换您的 GitHub Raw 图片链接
+        const LOGO_URL = 'https://raw.githubusercontent.com/your-username/your-repo/main/logo.jpg'; 
+        // 示例: 'https://raw.githubusercontent.com/jiahui/assets/main/logo_v3.jpg'
+        // 注意：如果图片无法加载，系统会自动回退到 SVG 图标
+        // ==========================================
+
         let isLocalMode = false;
         let db = null;
         let auth = null;
@@ -377,23 +379,38 @@
             window.appLoaded = true;
             document.getElementById('system-loading').style.opacity = '0';
             setTimeout(() => document.getElementById('system-loading').style.display = 'none', 500);
+            
+            // 设置 Logo
+            const setLogo = (id) => {
+                const img = document.getElementById(id);
+                if(img) {
+                    // 暂时使用本地文件名，如果您有 GitHub 链接，请修改上面的 LOGO_URL 变量并使用
+                    // img.src = LOGO_URL; 
+                    img.src = 'img_v3_02s5_0ead4a6a-f1dc-4f8a-b6f5-f649d6ed98cg.jpg';
+                }
+            };
+            setLogo('login-logo-img');
+            setLogo('sidebar-logo-img');
+            setLogo('report-logo-img');
+
             try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
             document.querySelectorAll('textarea[maxlength]').forEach(el => { el.addEventListener('input', function() { const tip = this.parentElement.querySelector('.count-tip'); if(tip) tip.innerText = `${this.value.length}/${this.getAttribute('maxlength')}`; }); });
-            if (typeof __firebase_config === 'undefined' || !__firebase_config) { isLocalMode = true; checkLogin(); return; }
+            if (typeof __firebase_config === 'undefined' || !__firebase_config) { isLocalMode = true; setStatus('🏠 本地离线模式 (数据仅本机可见)'); checkLogin(); return; }
             try {
                 const config = JSON.parse(__firebase_config);
                 appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 const app = initializeApp(config); auth = getAuth(app); db = getFirestore(app);
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth);
-                onAuthStateChanged(auth, async (user) => { if (user) { const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
-            } catch (e) { console.error(e); isLocalMode = true; checkLogin(); }
+                onAuthStateChanged(auth, async (user) => { if (user) { setStatus('🟢 云端同步中'); const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
+            } catch (e) { console.error(e); isLocalMode = true; setStatus('🟠 连接失败，已切换至离线模式'); checkLogin(); }
         }
-
-        window.forceLocalLogin = (user) => { isLocalMode = true; appUser = user; showApp(); };
+        
+        function setStatus(msg) { document.getElementById('status-indicator').innerText = msg; }
+        window.forceLocalLogin = (user) => { isLocalMode = true; appUser = user; setStatus('🏠 离线模式'); showApp(); };
         function checkLogin() { const saved = localStorage.getItem('jh_current_user'); if(saved) { try { appUser = JSON.parse(saved); showApp(); } catch(e) { showLogin(); } } else showLogin(); }
         async function loginWithUid(uid) {
             if (uid === 'admin_master') { appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' }; showApp(); return; }
-            try { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)); const snap = await getDocs(q); let found = null; snap.forEach(d => found = { ...d.data(), id: d.id }); if(found) { appUser = found; showApp(); } else showLogin(); } catch(e) { showLogin(); }
+            try { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)); const snap = await getDocs(q); let found = null; snap.forEach(d => found = { ...d.data(), id: d.id }); if(found) { appUser = found; showApp(); } else showLogin(); } catch(e) { alert("Error: "+e.message); showLogin(); }
         }
 
         window.handleLogin = async (u, p) => {
@@ -549,18 +566,39 @@
             const overlay = document.getElementById('loading-overlay');
             overlay.style.display = 'flex';
             try {
+                // Fix: Force full height render
+                const h = el.scrollHeight; 
+                const originalH = el.style.height; 
+                el.style.height = h + 'px'; 
+                
                 const clone = el.cloneNode(true);
-                clone.style.width = '800px'; clone.style.position = 'fixed'; clone.style.top='-9999px'; clone.style.left='-9999px';
+                clone.style.width = '800px'; 
+                clone.style.height = h + 'px'; // Explicit height
+                clone.style.position = 'fixed'; 
+                clone.style.top = '-9999px'; 
+                clone.style.left = '-9999px';
+                
                 const origC = el.querySelector('canvas'); const cloneC = clone.querySelector('canvas');
                 if(origC && cloneC) { const img = document.createElement('img'); img.src = origC.toDataURL(); img.style.width='100%'; cloneC.parentNode.replaceChild(img, cloneC); }
+                
                 document.body.appendChild(clone);
-                const canvas = await html2canvas(clone, { scale:2, useCORS:true, backgroundColor:'#ffffff' });
+                
+                const canvas = await html2canvas(clone, { 
+                    scale: 2, 
+                    useCORS: true, 
+                    backgroundColor: '#ffffff', 
+                    height: h, 
+                    windowHeight: h 
+                });
+                
                 const a = document.createElement('a');
                 a.download = `督导反馈_${document.getElementById('displayTeacher').innerText}.png`;
                 a.href = canvas.toDataURL();
                 a.click();
+                
                 document.body.removeChild(clone);
-            } catch(e) { alert("截图失败"); }
+                el.style.height = originalH; // Restore
+            } catch(e) { console.error(e); alert("截图失败"); }
             overlay.style.display = 'none';
         }
 
@@ -570,7 +608,7 @@
             tbody.innerHTML = '';
             let users = [];
             if(isLocalMode) users = JSON.parse(localStorage.getItem('jh_users_db')||'[]');
-            else { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'))); snap.forEach(d => users.push({...d.data(), id:d.id})); }
+            else { try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'))); snap.forEach(d => users.push({...d.data(), id:d.id})); } catch(e) { alert("加载用户失败: "+e.message); } }
             users.forEach(u => { tbody.innerHTML += `<tr class="border-b"><td class="p-5">${u.name}</td><td class="p-5 text-slate-500">${u.username}</td><td class="p-5 text-xs">******</td><td class="p-5"><span class="px-2 py-1 rounded text-xs border ${u.role==='admin'?'bg-purple-50 text-purple-700':'bg-blue-50 text-blue-700'}">${u.role==='admin'?'管理员':'督导'}</span></td><td class="p-5"><button onclick="window.delUser('${u.id}','${u.uid}')" class="text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button> <button onclick="window.resetUserPassword('${u.id}')" class="text-blue-400 hover:text-blue-600 ml-2" title="重置密码"><i class="fas fa-undo"></i></button></td></tr>`; });
         }
         window.addUser = async () => {
@@ -601,9 +639,8 @@
         
         window.autoFillAccount = (name) => {
             const usernameInput = document.getElementById('new-username');
-            if (!usernameInput) return;
-            if (typeof Pinyin === 'undefined') return;
-            try { usernameInput.value = Pinyin.getPinyin(name).replace(/\s+/g,'').toLowerCase(); } catch(e) { console.warn(e); }
+            if (!usernameInput || typeof Pinyin === 'undefined') return;
+            try { usernameInput.value = Pinyin.getPinyin(name).replace(/\s+/g,'').toLowerCase(); } catch(e) {}
         }
 
         window.exportToCSV = () => {
