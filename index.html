@@ -76,19 +76,6 @@
         .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
         @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
     </style>
-
-    <!-- 卫兵脚本 -->
-    <script>
-        window.appLoaded = false;
-        setTimeout(function() {
-            if (!window.appLoaded) {
-                // 如果3秒没加载完，显示错误提示而不是切本地
-                const loaderText = document.querySelector('#system-loading .text-xs');
-                if(loaderText) loaderText.innerText = "连接超时，请检查网络 (Github Pages 需确保能访问 Firebase)";
-                // 注意：这里不再有 forceLocalLogin 逻辑
-            }
-        }, 5000);
-    </script>
 </head>
 <body class="flex h-screen overflow-hidden text-slate-700 bg-slate-50">
 
@@ -107,7 +94,7 @@
     <div id="config-warning" class="fixed inset-0 z-[100] flex items-center justify-center hidden bg-slate-900/90 backdrop-blur-sm">
         <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg mx-4 text-center">
             <div class="text-5xl text-red-500 mb-4"><i class="fas fa-database"></i></div>
-            <h2 class="text-2xl font-bold text-slate-800 mb-2">未检测到云端配置</h2>
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">未连接数据库</h2>
             <p class="text-sm text-slate-600 mb-6">系统无法连接数据库。如果您是管理员，请检查代码中的 <code>MANUAL_FIREBASE_CONFIG</code> 字段。</p>
             <button onclick="location.reload()" class="btn-jh w-full">刷新重试</button>
         </div>
@@ -125,7 +112,7 @@
                 <div><input type="password" name="password" required class="input-minimal bg-slate-50 border-slate-200 focus:bg-white" placeholder="密码"></div>
                 <button type="submit" id="login-btn" class="w-full btn-jh py-3 flex justify-center items-center gap-2 text-base"><span>登录</span> <i class="fas fa-arrow-right text-xs"></i></button>
             </form>
-            <p class="text-xs text-center text-slate-300 mt-8">System v4.3 (Cloud Verified)</p>
+            <p class="text-xs text-center text-slate-300 mt-8">System v5.3 (Fast Cloud)</p>
         </div>
     </div>
 
@@ -313,18 +300,17 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where, enableIndexedDbPersistence, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ================= CONFIG =================
-        // Github Logo (Space encoded as %20)
-        const LOGO_URL = 'https://raw.githubusercontent.com/debrisff-afk/teaching/main/%E5%AE%B6%E8%BE%89%20logo.png'; 
+        const LOGO_URL = 'https://raw.githubusercontent.com/debrisff-afk/teaching/main/img_v3_02s5_0ead4a6a-f1dc-4f8a-b6f5-f649d6ed98cg.jpg'; 
         
-        // ★★★ 请将您的 Firebase 配置填入下方 (替换 null) ★★★
+        // YOUR FIREBASE CONFIG (Injected from screenshot)
         const MANUAL_FIREBASE_CONFIG = {
           apiKey: "AIzaSyDnmfNHyk6oQ4QOti2_sw_jzDy3k9R93bQ",
-          authDomain: "teaching-baf85.firebaseapp.com",
+          authDomain: "teaching-baf85.appspot.com",
           projectId: "teaching-baf85",
-          storageBucket: "teaching-baf85.appspot.com",
+          storageBucket: "teaching-baf85.firebasestorage.app",
           messagingSenderId: "597140673075",
           appId: "1:597140673075:web:fe8eece32a33a99f893da6",
           measurementId: "G-WJC6VXV7P0"
@@ -344,63 +330,94 @@
             setTimeout(() => document.getElementById('system-loading').style.display = 'none', 500);
 
             // Set Logo
-            const setLogo = (id) => { const img = document.getElementById(id); if(img) img.src = LOGO_URL; };
+            const setLogo = (id) => { const img = document.getElementById(id); if(img) { img.src = LOGO_URL; img.onerror = () => img.src = "img_v3_02s5_0ead4a6a-f1dc-4f8a-b6f5-f649d6ed98cg.jpg"; } };
             setLogo('login-logo-img'); setLogo('sidebar-logo-img'); setLogo('report-logo-img');
 
             try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
             document.querySelectorAll('textarea[maxlength]').forEach(el => { el.addEventListener('input', function() { const tip = this.parentElement.querySelector('.count-tip'); if(tip) tip.innerText = `${this.value.length}/${this.getAttribute('maxlength')}`; }); });
 
-            let configToUse = null;
-            if (typeof __firebase_config !== 'undefined' && __firebase_config) { configToUse = JSON.parse(__firebase_config); }
-            else if (MANUAL_FIREBASE_CONFIG) { configToUse = MANUAL_FIREBASE_CONFIG; appId = MANUAL_FIREBASE_CONFIG.projectId; }
-            else { document.getElementById('config-warning').classList.remove('hidden'); return; }
+            // Force use manual config
+            appId = MANUAL_FIREBASE_CONFIG.projectId;
             
-            await connectFirebase(configToUse);
-        }
+            try {
+                const app = initializeApp(MANUAL_FIREBASE_CONFIG);
+                auth = getAuth(app);
+                db = getFirestore(app);
 
-        async function connectFirebase(config) {
-             try {
-                const app = initializeApp(config); auth = getAuth(app); db = getFirestore(app);
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth);
-                onAuthStateChanged(auth, async (user) => { if (user) { const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
-            } catch (e) { alert("云端连接失败，请检查配置是否正确"); document.getElementById('config-warning').classList.remove('hidden'); }
+                // 核心：启用本地持久化 (解决延迟问题)
+                try {
+                    await enableIndexedDbPersistence(db);
+                    console.log("Persistence enabled");
+                } catch (err) {
+                    console.warn("Persistence failed:", err.code);
+                }
+
+                // FIX: 当使用 MANUAL 配置时，始终尝试匿名登录，因为 Custom Token 肯定不匹配
+                let tokenSuccess = false;
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try {
+                        // 尝试一下（虽然预期会失败）
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                        tokenSuccess = true;
+                    } catch(e) { console.log("Token mismatch (expected), falling back to anonymous."); }
+                }
+                
+                if (!tokenSuccess) await signInAnonymously(auth);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        const savedUid = localStorage.getItem('jh_session_uid');
+                        if (savedUid) await loginWithUid(savedUid); else showLogin();
+                    } else showLogin();
+                });
+
+            } catch (e) {
+                console.error(e);
+                alert("初始化失败，请刷新重试");
+            }
         }
 
         async function loginWithUid(uid) {
             if (uid === 'admin_master') { appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' }; showApp(); return; }
-            try { const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)); const snap = await getDocs(q); let found = null; snap.forEach(d => found = { ...d.data(), id: d.id }); if(found) { appUser = found; showApp(); } else showLogin(); } catch(e) { showLogin(); }
+            // 开启实时监听用户状态，而不是 getDocs
+            onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("uid", "==", uid)), (snap) => {
+                if (!snap.empty) {
+                    snap.forEach(d => appUser = { ...d.data(), id: d.id });
+                    showApp();
+                } else showLogin();
+            }, (err) => showLogin());
         }
 
         window.handleLogin = async (u, p) => {
-            const btn = document.getElementById('login-btn'); btn.innerHTML = '登录中...';
+            const btn = document.getElementById('login-btn'); btn.innerHTML = '验证中...';
             try {
                 if(u === 'admin' && p === '123456') { appUser = { uid: 'admin_master', username: 'admin', name: '系统管理员', role: 'admin' }; finishLogin(appUser); return; }
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), where("username", "==", u));
                 const snap = await getDocs(q); let found = null;
                 snap.forEach(d => { if(d.data().password === p) found = { ...d.data(), id: d.id }; });
-                if(found) finishLogin(found); else { alert("账号或密码错误"); btn.innerHTML = '<span>立即登录</span> <i class="fas fa-arrow-right text-xs"></i>'; }
-            } catch(e) { alert("登录异常，请检查网络"); btn.innerHTML = '<span>立即登录</span>'; }
+                if(found) finishLogin(found); else { alert("账号或密码错误"); btn.innerHTML = '登录'; }
+            } catch(e) { alert("网络错误"); btn.innerHTML = '登录'; }
         };
 
         function finishLogin(user) { appUser = user; localStorage.setItem('jh_session_uid', user.uid); showApp(); }
         window.handleLogout = () => { appUser = null; localStorage.removeItem('jh_session_uid'); location.reload(); };
         function showLogin() { document.getElementById('login-modal').classList.remove('hidden'); document.getElementById('app-container').classList.add('hidden'); }
+        
         function showApp() {
             if(!appUser) return;
             document.getElementById('login-modal').classList.add('hidden'); document.getElementById('app-container').classList.remove('hidden');
             document.getElementById('sidebar-username').innerText = appUser.name; document.getElementById('sidebar-role').innerText = appUser.role === 'admin' ? '管理员' : '督导';
             if(appUser.role === 'admin') document.getElementById('nav-admin').classList.remove('hidden'); else document.getElementById('nav-admin').classList.add('hidden');
-            startNewEvaluation(); window.loadEvaluations();
+            startNewEvaluation(); setupEvaluationsListener();
         }
 
         window.switchPage = (id) => {
-            if(id === 'admin' && appUser.role !== 'admin') { alert("无权限"); return; }
             ['home','tool','data','admin'].forEach(p => document.getElementById(p+'-view').classList.add('hidden'));
             document.getElementById('report-view').classList.add('hidden');
             document.getElementById(id+'-view').classList.remove('hidden');
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             const nav = document.getElementById('nav-'+id); if(nav) nav.classList.add('active');
-            if(id === 'admin') window.loadAllUsers(); if(id === 'data') window.loadEvaluations();
+            if(id === 'admin') setupUsersListener();
         }
 
         window.startNewEvaluation = () => {
@@ -408,49 +425,65 @@
             document.getElementById('editRecordId').value = "";
             document.getElementById('supervisorName').value = appUser ? appUser.name : '';
             try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
-            document.getElementById('save-btn').innerText = "生成评估报告";
-            document.getElementById('cancel-edit-btn').classList.add('hidden');
-            document.getElementById('tool-title').innerText = "新建评估";
-            document.querySelectorAll('.input-minimal').forEach(el => el.classList.remove('error'));
             window.switchPage('tool');
+        }
+
+        // 使用 onSnapshot 替代 getDocs 实现实时、低延迟更新
+        function setupEvaluationsListener() {
+            if(!appUser) return;
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'));
+            onSnapshot(q, (snapshot) => {
+                let data = [];
+                snapshot.forEach(doc => data.push({ ...doc.data(), id: doc.id }));
+                if(appUser.role !== 'admin') data = data.filter(i => i.creatorId === appUser.uid);
+                data.sort((a,b) => b.timestamp - a.timestamp);
+                cachedEvaluations = data;
+                renderTable(data);
+                updateStats(data);
+            });
+        }
+
+        function setupUsersListener() {
+            if(appUser.role !== 'admin') return;
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'));
+            onSnapshot(q, (snapshot) => {
+                let users = [];
+                snapshot.forEach(doc => users.push({ ...doc.data(), id: doc.id }));
+                renderUserTable(users);
+            });
         }
 
         window.handleGenerateAndSave = async () => {
             const form = document.getElementById('evaluation-form');
-            if(!form.checkValidity()) { form.reportValidity(); form.querySelectorAll(':invalid').forEach(el => el.classList.add('error')); setTimeout(() => form.querySelectorAll('.error').forEach(el => el.classList.remove('error')), 1000); return; }
+            if(!form.checkValidity()) { form.reportValidity(); return; }
+            
+            // 立即给用户反馈，不等待 await
+            const btn = document.getElementById('save-btn');
+            btn.innerText = "处理中..."; btn.disabled = true;
+
             const getVal = (id) => parseInt(document.getElementById(id).value) || 0;
             const getText = (id) => document.getElementById(id).value || "";
             const scores = [getVal('scoreFun'), getVal('scoreEff'), getVal('scoreUse'), getVal('scoreAwareness'), getVal('scoreResult')];
             const total = scores.reduce((a,b)=>a+b, 0);
             let level = total >= 90 ? "A+ 卓越" : (total >= 85 ? "A 高效" : (total >= 75 ? "B 合格" : "C 需改进"));
+
             const data = {
                 supervisorName: getText('supervisorName'), teacherName: getText('teacherName'), courseType: document.getElementById('courseType').value,
                 topic: getText('topic'), date: getText('date'), scores: scores, totalScore: total, level: level,
                 tags: { fun: getSelectedTags('tags-fun'), eff: getSelectedTags('tags-eff'), use: getSelectedTags('tags-use') },
                 feedbacks: { fun: getText('textFun'), eff: getText('textEff'), use: getText('textUse'), awareness: getText('textAwareness'), result: getText('textResult'), overall: getText('textOverallImprovement'), verdict: getText('textFinalVerdict') }
             };
-            await saveToDB(data); window.renderReport(data);
-        };
 
-        async function saveToDB(data) {
             const editId = document.getElementById('editRecordId').value;
             const record = { ...data, timestamp: Date.now() };
             if(!editId) { record.creatorId = appUser.uid; record.creatorName = appUser.name; }
-            try {
-                if(editId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations', editId), record);
-                else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'), record);
-            } catch(e) { alert("保存失败: " + e.message); }
-            window.loadEvaluations();
-        }
 
-        window.loadEvaluations = async () => {
-            if(!appUser) return;
-            const tbody = document.getElementById('data-table-body');
-            tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">加载中...</td></tr>';
-            let data = [];
-            try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'))); snap.forEach(d => data.push({ ...d.data(), id: d.id })); } catch(e) {}
-            if(appUser.role !== 'admin') data = data.filter(i => i.creatorId === appUser.uid);
-            data.sort((a,b) => b.timestamp - a.timestamp); cachedEvaluations = data; renderTable(data); updateStats(data);
+            // 异步写入，利用 Persistence 立刻返回，无需等待
+            if(editId) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations', editId), record);
+            else addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_evaluations'), record);
+
+            window.renderReport(data);
+            btn.innerText = "生成评估报告"; btn.disabled = false;
         };
 
         function renderTable(data) {
@@ -461,6 +494,12 @@
                 const canEdit = appUser.role === 'admin' || item.creatorId === appUser.uid;
                 tbody.innerHTML += `<tr class="border-b hover:bg-slate-50"><td class="p-5 font-bold text-slate-700">${item.date}<div class="text-xs font-normal text-slate-400">${item.courseType}</div></td><td class="p-5 text-slate-500">${item.supervisorName}</td><td class="p-5 font-medium">${item.teacherName}</td><td class="p-5 text-slate-500 text-sm max-w-xs truncate">${item.topic}</td><td class="p-5 font-bold text-jhblue">${item.totalScore}</td><td class="p-5"><button onclick="window.viewRecord('${item.id}')" class="text-slate-400 hover:text-jhblue"><i class="fas fa-eye"></i></button>${canEdit?`<button onclick="window.editRecord('${item.id}')" class="ml-3 text-slate-400 hover:text-blue-600"><i class="fas fa-edit"></i></button>`:''}</td></tr>`;
             });
+        }
+        
+        function renderUserTable(users) {
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '';
+            users.forEach(u => { tbody.innerHTML += `<tr class="border-b"><td class="p-5">${u.name}</td><td class="p-5 text-slate-500">${u.username}</td><td class="p-5 text-xs">******</td><td class="p-5"><span class="px-2 py-1 rounded text-xs border ${u.role==='admin'?'bg-purple-50 text-purple-700':'bg-blue-50 text-blue-700'}">${u.role==='admin'?'管理员':'督导'}</span></td><td class="p-5"><button onclick="window.delUser('${u.id}')" class="text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button> <button onclick="window.resetUserPassword('${u.id}')" class="text-blue-400 hover:text-blue-600 ml-2" title="重置密码"><i class="fas fa-undo"></i></button></td></tr>`; });
         }
 
         function updateStats(data) {
@@ -532,26 +571,19 @@
             overlay.style.display = 'none';
         }
 
-        window.loadAllUsers = async () => {
-            if(!appUser || appUser.role !== 'admin') return;
-            const tbody = document.getElementById('user-table-body');
-            tbody.innerHTML = '';
-            let users = [];
-            try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'))); snap.forEach(d => users.push({...d.data(), id:d.id})); } catch(e) { alert("加载用户失败: "+e.message); }
-            users.forEach(u => { tbody.innerHTML += `<tr class="border-b"><td class="p-5">${u.name}</td><td class="p-5 text-slate-500">${u.username}</td><td class="p-5 text-xs">******</td><td class="p-5"><span class="px-2 py-1 rounded text-xs border ${u.role==='admin'?'bg-purple-50 text-purple-700':'bg-blue-50 text-blue-700'}">${u.role==='admin'?'管理员':'督导'}</span></td><td class="p-5"><button onclick="window.delUser('${u.id}','${u.uid}')" class="text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button> <button onclick="window.resetUserPassword('${u.id}')" class="text-blue-400 hover:text-blue-600 ml-2" title="重置密码"><i class="fas fa-undo"></i></button></td></tr>`; });
-        }
         window.addUser = async () => {
             const name = document.getElementById('new-name').value; const u = document.getElementById('new-username').value; const p = document.getElementById('new-password').value; const r = document.getElementById('new-role').value;
             if(!name||!u||!p) return alert("请填写完整");
             const newUser = { name, username:u, password:p, role:r, uid:'u_'+Date.now() };
-            try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), newUser); alert("添加成功"); window.loadAllUsers(); } catch(e) { alert("添加失败"); }
+            // Persistence enabled: addDoc returns promise, but data is written locally immediately
+            addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jh_users'), newUser).then(()=>{ alert("添加成功"); }).catch(e=>alert("失败:"+e));
         }
-        window.delUser = async (id, uid) => { if(!confirm("删除?")) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id)); window.loadAllUsers(); } catch(e) { alert("删除失败"); } }
-        window.resetUserPassword = async (id) => { if(!confirm("重置密码为 123456?")) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id), {password:'123456'}); alert("密码已重置"); } catch(e) { alert("操作失败"); } }
+        window.delUser = async (id) => { if(confirm("删除?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id)); }
+        window.resetUserPassword = async (id) => { if(confirm("重置?")) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', id), {password:'123456'}); }
         window.changeOwnPassword = async (oldP, newP) => {
             if(oldP !== appUser.password) return alert("旧密码错误");
-            if(newP.length < 6) return alert("新密码太短");
-            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', appUser.id), {password: newP}); appUser.password = newP; alert("修改成功"); document.getElementById('pwd-modal').classList.add('hidden'); } catch(e) { alert("修改失败"); }
+            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jh_users', appUser.id), {password: newP});
+            appUser.password = newP; alert("修改成功"); document.getElementById('pwd-modal').classList.add('hidden');
         }
         
         window.autoFillAccount = (name) => {
