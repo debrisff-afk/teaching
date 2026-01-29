@@ -9,7 +9,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <!-- 拼音库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tiny-pinyin/1.3.2/tiny-pinyin.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
@@ -19,8 +18,8 @@
             theme: {
                 extend: {
                     colors: {
-                        jhblue: '#009FE8', // 家辉蓝
-                        jhorange: '#FF6B6B', // 活力橙
+                        jhblue: '#009FE8', 
+                        jhorange: '#FF6B6B', 
                         jhbg: '#F8FAFC',
                     },
                     boxShadow: {
@@ -32,7 +31,6 @@
         }
     </script>
 
-    <!-- 样式 -->
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
         body { font-family: 'Noto Sans SC', sans-serif; background-color: #F8FAFC; color: #334155; }
@@ -41,22 +39,16 @@
         .nav-item:hover { background-color: #F1F5F9; color: #009FE8; }
         .nav-item.active { background-color: #F0F9FF; color: #009FE8; border-left-color: #009FE8; font-weight: 600; }
         
-        .input-minimal {
-            width: 100%; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 14px; font-size: 14px; transition: all 0.2s ease; color: #334155;
-        }
+        .input-minimal { width: 100%; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 14px; font-size: 14px; transition: all 0.2s ease; color: #334155; }
         .input-minimal:focus { border-color: #009FE8; box-shadow: 0 0 0 2px rgba(0, 159, 232, 0.05); outline: none; }
         .input-minimal.error { border-color: #FF6B6B; background-color: #FFF5F5; }
         .input-minimal:read-only { background-color: #F8FAFC; color: #94A3B8; cursor: default; }
-        
         .label-minimal { display: block; font-size: 13px; font-weight: 500; color: #64748B; margin-bottom: 6px; }
-        
         .check-item { display: inline-block; padding: 6px 12px; border-radius: 4px; background: #FFFFFF; color: #64748B; font-size: 12px; cursor: pointer; border: 1px solid #E2E8F0; transition: all 0.2s; }
         .check-item:hover { border-color: #009FE8; color: #009FE8; }
         .check-item.checked { background: #009FE8; color: white; border-color: #009FE8; }
-        
         .btn-jh { background-color: #009FE8; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-weight: 500; transition: all 0.2s; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
         .btn-jh:hover { background-color: #0284c7; }
-        
         .btn-outline { background: white; border: 1px solid #E2E8F0; color: #64748B; border-radius: 6px; padding: 10px 24px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
         .btn-outline:hover { border-color: #009FE8; color: #009FE8; background: #F8FAFC; }
 
@@ -64,56 +56,60 @@
         #toast-container { position: fixed; top: 24px; right: 24px; z-index: 9999; transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         #toast-container.show { transform: translateX(0); }
         #loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 100; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(2px); }
-
-        /* Logo 样式 */
         .app-logo { max-height: 60px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
         .sidebar-logo { max-height: 40px; width: auto; display: block; margin: 0 auto; object-fit: contain; }
         .report-logo { max-height: 60px; width: auto; display: block; object-fit: contain; margin-bottom: 1rem; }
 
-        /* 打印样式优化 */
         @media print {
             @page { size: A4; margin: 0; }
             body { background: white; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            #sidebar, #mobile-header, .no-print, #admin-view, #tool-view, #data-view, #home-view, #login-modal, #pwd-modal, #loading-overlay, #system-loading, #toast-container { display: none !important; }
+            #sidebar, #mobile-header, .no-print, #admin-view, #tool-view, #data-view, #home-view, #login-modal, #pwd-modal, #config-modal, #loading-overlay, #system-loading, #toast-container { display: none !important; }
             #app-container { display: block !important; height: auto !important; overflow: visible !important; }
             #main-content { margin: 0 !important; padding: 0 !important; overflow: visible !important; height: auto !important; }
-            #report-view { 
-                display: block !important; position: static !important; inset: auto !important; 
-                background: white !important; overflow: visible !important; padding: 0 !important; 
-            }
-            #report-container { 
-                box-shadow: none !important; margin: 0 auto !important; width: 100% !important; max-width: 210mm !important; border: none !important;
-            }
+            #report-view { display: block !important; position: static !important; inset: auto !important; background: white !important; overflow: visible !important; padding: 0 !important; }
+            #report-container { box-shadow: none !important; margin: 0 auto !important; width: 100% !important; max-width: 210mm !important; border: none !important; }
             .detail-card { break-inside: avoid; border: 1px solid #eee !important; page-break-inside: avoid; }
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
-        
         .report-clone-container { background-color: white !important; }
-        
         .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
         @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
     </style>
+
+    <script>
+        window.appLoaded = false;
+        setTimeout(function() {
+            if (!window.appLoaded) {
+                // 如果3秒没加载完，不再自动切本地，而是显示配置弹窗
+                document.getElementById('system-loading').style.display = 'none';
+                document.getElementById('config-modal').classList.remove('hidden');
+            }
+        }, 3000);
+    </script>
 </head>
 <body class="flex h-screen overflow-hidden text-slate-700 bg-slate-50">
 
-    <!-- 全局启动加载页 -->
     <div id="system-loading">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-100 border-t-jhblue mb-4"></div>
         <div class="text-lg font-bold text-jhblue tracking-wide">家辉培优</div>
         <div class="text-xs text-slate-400 mt-2">正在连接云端数据库...</div>
     </div>
-
-    <!-- Toast -->
     <div id="toast-container" class="bg-slate-800 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4">
         <div class="bg-green-500 rounded-full p-1"><i class="fas fa-check text-xs text-white"></i></div>
         <span id="toast-message" class="font-medium text-sm">操作成功</span>
     </div>
+    <div id="loading-overlay"><div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center"><div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-100 border-t-jhblue mb-4"></div><div class="text-slate-600 font-bold">处理中...</div></div></div>
 
-    <!-- Loading Overlay -->
-    <div id="loading-overlay">
-        <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center">
-            <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-100 border-t-jhblue mb-4"></div>
-            <div class="text-slate-600 font-bold">处理中...</div>
+    <!-- 0. 错误/配置界面 (新增) -->
+    <div id="config-modal" class="fixed inset-0 z-[100] flex items-center justify-center hidden bg-slate-900/80 backdrop-blur-sm">
+        <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg mx-4">
+            <h2 class="text-xl font-bold text-red-500 mb-4"><i class="fas fa-exclamation-triangle"></i> 未检测到云端配置</h2>
+            <p class="text-sm text-slate-600 mb-4">您正在 GitHub 或本地运行此系统。为了确保数据安全存储在云端，请联系管理员获取 <b>Firebase Config JSON</b> 并填入代码中，或粘贴在下方临时使用。</p>
+            <textarea id="firebase-config-input" class="w-full h-32 border border-slate-300 rounded p-3 text-xs font-mono mb-4" placeholder='{"apiKey": "...", "authDomain": "...", ...}'></textarea>
+            <div class="flex justify-end gap-3">
+                <button onclick="window.saveConfigAndReload()" class="btn-jh w-full">保存配置并重连</button>
+            </div>
+            <p class="text-xs text-slate-400 mt-4 text-center">注意：建议直接修改 HTML 文件中的 MANUAL_FIREBASE_CONFIG 变量以永久生效。</p>
         </div>
     </div>
 
@@ -121,8 +117,7 @@
     <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-gradient-to-br from-blue-50 to-slate-100">
         <div class="bg-white rounded-xl shadow-soft p-10 w-full max-w-sm mx-4 border border-slate-100">
             <div class="text-center mb-10">
-                <!-- 登录 Logo (GitHub Raw) -->
-                <img id="login-logo-img" class="app-logo" alt="家辉培优 Logo">
+                <img id="login-logo-img" class="app-logo" alt="家辉培优 Logo" src="">
                 <h2 class="text-xl font-bold text-slate-800 tracking-tight mt-6">督导管理系统</h2>
             </div>
             <form onsubmit="event.preventDefault(); window.handleLogin(this.username.value, this.password.value);" class="space-y-5">
@@ -130,7 +125,7 @@
                 <div><input type="password" name="password" required class="input-minimal bg-slate-50 border-slate-200 focus:bg-white" placeholder="密码"></div>
                 <button type="submit" id="login-btn" class="w-full btn-jh py-3 flex justify-center items-center gap-2 text-base"><span>登录</span> <i class="fas fa-arrow-right text-xs"></i></button>
             </form>
-            <p class="text-xs text-center text-slate-300 mt-8">System v4.0 (Cloud Only)</p>
+            <p class="text-xs text-center text-slate-300 mt-8">System v4.1 (Cloud Only)</p>
         </div>
     </div>
 
@@ -154,7 +149,7 @@
         <!-- 侧边栏 -->
         <aside id="sidebar" class="w-64 bg-white border-r border-slate-100 flex flex-col no-print z-20">
             <div class="p-8 pb-4 flex items-center justify-center">
-                <img id="sidebar-logo-img" class="sidebar-logo" alt="Logo">
+                <img id="sidebar-logo-img" class="sidebar-logo" alt="Logo" src="">
             </div>
             <nav class="flex-1 px-4 space-y-1 mt-6">
                 <a href="javascript:void(0)" onclick="switchPage('home')" id="nav-home" class="nav-item flex items-center p-3 rounded-lg text-sm"><i class="fas fa-chart-pie w-6 text-center opacity-70"></i> <span class="ml-2">仪表盘</span></a>
@@ -179,7 +174,6 @@
 
         <!-- 主内容区 -->
         <main id="main-content" class="flex-1 overflow-y-auto relative bg-[#F8FAFC]">
-            
             <!-- 仪表盘 -->
             <div id="home-view" class="p-8 max-w-7xl mx-auto">
                 <div class="mb-8"><h2 class="text-2xl font-bold text-slate-800">概览</h2><p class="text-sm text-slate-400">欢迎回来，开始今天的督导工作吧。</p></div>
@@ -294,7 +288,7 @@
                                 <h1 class="text-4xl font-bold text-white print:text-black">家辉培优 · 督导反馈</h1>
                             </div>
                             <div class="text-right">
-                                <!-- 报告单 Logo (GitHub Raw) -->
+                                <!-- 报告单 Logo -->
                                 <img id="report-logo-img" class="report-logo bg-white/10 rounded p-1 mb-2 ml-auto" alt="Logo">
                                 <div id="displayLevel" class="text-6xl font-black text-white print:text-black">A</div>
                                 <div class="text-xs uppercase mt-1 opacity-60 print:text-black">Rating</div>
@@ -339,10 +333,23 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, query, setDoc, doc, updateDoc, deleteDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ================= CONFIG: GitHub Raw Logo URL =================
-        // 请在此处填入您的 GitHub Raw 链接，替换 YOUR_REPO_NAME
+        // ================= CONFIG & FALLBACK =================
+        // 请在此处替换您的 GitHub Raw 图片链接，并将 "YOUR_REPO_NAME" 替换为您的仓库名
         const LOGO_URL = 'https://raw.githubusercontent.com/debrisff-afk/teaching/main/家辉%20logo.png'; 
-        // ==============================================================
+        // 示例: 'https://raw.githubusercontent.com/debrisff-afk/supervision-system/main/家辉%20logo.png'
+        
+        // TODO: 如果您在 GitHub Pages 上运行，请在此处填入您的 Firebase 配置：
+        // const MANUAL_FIREBASE_CONFIG = { apiKey: "...", authDomain: "...", projectId: "...", ... };
+        const MANUAL_FIREBASE_CONFIG = {
+          apiKey: "AIzaSyAPIORE13t7hfVLYwAA0iLyH0sDBDKXChY",
+          authDomain: "teaching-92237.firebaseapp.com",
+          projectId: "teaching-92237",
+          storageBucket: "teaching-92237.appspot.com",
+          messagingSenderId: "131496449052",
+          appId: "1:131496449052:web:f0d9002202b0ecdf653bd9",
+          measurementId: "G-GY59B0SX7C"
+            };
+        // =======================================================
 
         let db = null;
         let auth = null;
@@ -356,13 +363,16 @@
             document.getElementById('system-loading').style.opacity = '0';
             setTimeout(() => document.getElementById('system-loading').style.display = 'none', 500);
 
-            // 设置 Logo (优先使用 Github 链接，失败则使用本地占位)
+            // 设置 Logo (优先使用 Github 链接)
             const setLogo = (id) => {
                 const img = document.getElementById(id);
                 if(img) {
                     img.src = LOGO_URL;
-                    // 如果加载失败，可以回退到本地同名文件（如果存在）
-                    img.onerror = () => { console.warn("GitHub logo load failed, using fallback."); img.src = "家辉 logo.png"; };
+                    // 如果加载失败，尝试使用本地相对路径（在同一文件夹下）
+                    img.onerror = () => { 
+                        console.warn("Logo load failed, checking local."); 
+                        if (img.src !== '家辉 logo.png') img.src = "家辉 logo.png"; 
+                    };
                 }
             };
             setLogo('login-logo-img');
@@ -372,15 +382,59 @@
             try { document.getElementById('date').valueAsDate = new Date(); } catch(e){}
             document.querySelectorAll('textarea[maxlength]').forEach(el => { el.addEventListener('input', function() { const tip = this.parentElement.querySelector('.count-tip'); if(tip) tip.innerText = `${this.value.length}/${this.getAttribute('maxlength')}`; }); });
 
-            // 强制云端检查：如果没配置，直接报错，不再允许离线模式
-            if (typeof __firebase_config === 'undefined' || !__firebase_config) { alert("严重错误：未检测到云端配置，系统无法运行。请联系管理员部署。"); return; }
-            try {
-                const config = JSON.parse(__firebase_config);
-                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            // 决定使用哪套配置
+            let configToUse = null;
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                configToUse = JSON.parse(__firebase_config);
+            } else if (MANUAL_FIREBASE_CONFIG) {
+                configToUse = MANUAL_FIREBASE_CONFIG;
+                appId = MANUAL_FIREBASE_CONFIG.projectId || 'default-app-id'; // 尝试从配置中获取ID
+            } else {
+                // 无配置，显示手动输入弹窗
+                document.getElementById('config-modal').classList.remove('hidden');
+                // 尝试读取本地缓存的配置 (方便调试)
+                const savedConfig = localStorage.getItem('jh_custom_firebase_config');
+                if (savedConfig) {
+                     try {
+                         configToUse = JSON.parse(savedConfig);
+                         appId = configToUse.projectId;
+                         console.log("Using cached config");
+                     } catch(e) {}
+                }
+                if (!configToUse) return; // 等待用户输入
+            }
+            
+            await connectFirebase(configToUse);
+        }
+
+        async function connectFirebase(config) {
+             try {
                 const app = initializeApp(config); auth = getAuth(app); db = getFirestore(app);
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth);
-                onAuthStateChanged(auth, async (user) => { if (user) { const savedUid = localStorage.getItem('jh_session_uid'); if (savedUid) await loginWithUid(savedUid); else showLogin(); } else showLogin(); });
-            } catch (e) { alert("云端连接失败，请检查网络。"); console.error(e); }
+                
+                // 尝试匿名登录或自定义 Token
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); 
+                else await signInAnonymously(auth);
+                
+                onAuthStateChanged(auth, async (user) => { 
+                    if (user) { 
+                        const savedUid = localStorage.getItem('jh_session_uid'); 
+                        if (savedUid) await loginWithUid(savedUid); else showLogin(); 
+                    } else showLogin(); 
+                });
+                
+                // 隐藏配置弹窗（如果打开）
+                document.getElementById('config-modal').classList.add('hidden');
+                
+            } catch (e) { alert("云端连接失败，请检查配置。"); console.error(e); document.getElementById('config-modal').classList.remove('hidden'); }
+        }
+
+        window.saveConfigAndReload = () => {
+            const val = document.getElementById('firebase-config-input').value;
+            try {
+                const conf = JSON.parse(val);
+                localStorage.setItem('jh_custom_firebase_config', val);
+                location.reload();
+            } catch(e) { alert("配置格式错误 (必须是有效的 JSON)"); }
         }
         
         async function loginWithUid(uid) {
@@ -533,26 +587,24 @@
             const overlay = document.getElementById('loading-overlay');
             overlay.style.display = 'flex';
             try {
-                // 1. 获取完整滚动高度
+                // 1. Force explicit height to ensure full capture
                 const h = el.scrollHeight; 
                 const originalH = el.style.height; 
-                el.style.height = h + 'px'; // 临时撑开容器
+                el.style.height = h + 'px'; // Temporarily expand
                 
-                // 2. 克隆节点
                 const clone = el.cloneNode(true);
+                // Set fixed width and explicit height for clone
                 clone.style.width = '800px'; 
-                clone.style.height = h + 'px'; 
+                clone.style.height = h + 'px'; // Explicit height
                 clone.style.position = 'fixed'; 
                 clone.style.top = '-9999px'; 
                 clone.style.left = '-9999px';
                 
-                // 3. 修复 Canvas 丢失问题
                 const origC = el.querySelector('canvas'); const cloneC = clone.querySelector('canvas');
                 if(origC && cloneC) { const img = document.createElement('img'); img.src = origC.toDataURL(); img.style.width='100%'; cloneC.parentNode.replaceChild(img, cloneC); }
                 
                 document.body.appendChild(clone);
                 
-                // 4. 截图
                 const canvas = await html2canvas(clone, { 
                     scale: 2, 
                     useCORS: true, 
@@ -567,7 +619,7 @@
                 a.click();
                 
                 document.body.removeChild(clone);
-                el.style.height = originalH; // 恢复原高度
+                el.style.height = originalH; // Restore
             } catch(e) { console.error(e); alert("截图失败"); }
             overlay.style.display = 'none';
         }
